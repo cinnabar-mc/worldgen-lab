@@ -17,9 +17,9 @@ import (
 type nativeContext struct{ handle *C.SteelContext }
 
 // openNative acquires the process's shared Steel context for this seed.
-func openNative(seed int64) (*nativeContext, error) {
+func openNative(seed int64, workers, cacheChunks int) (*nativeContext, error) {
 	var result C.SteelBuffer
-	handle := C.steel_context_new(C.int64_t(seed), &result)
+	handle := C.steel_context_new(C.int64_t(seed), C.uint32_t(workers), C.uint32_t(cacheChunks), &result)
 	defer C.steel_buffer_free(result)
 	if result.failed != 0 {
 		return nil, errors.New(string(unsafe.Slice((*byte)(unsafe.Pointer(result.data)), int(result.len))))

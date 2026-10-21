@@ -18,7 +18,7 @@ func TestSeedIdentity(t *testing.T) {
 	if err := checkSeed(dir, 43); err == nil {
 		t.Error("different seed accepted")
 	}
-	for _, text := range []string{"{}", `{"seed":42}`, `{"generator":"steel-6749ecf6-geyser-0fd435d3-v1"}`} {
+	for _, text := range []string{"{}", `{"seed":42}`, `{"generator":"steel-ff8e48c5-geyser-0fd435d3-batch-v2"}`} {
 		if err := os.WriteFile(filepath.Join(dir, "generator.json"), []byte(text), 0644); err != nil {
 			t.Fatal(err)
 		}

@@ -2,7 +2,10 @@ module github.com/cinnabar-mc/worldgen-lab
 
 go 1.26.1
 
-require github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
+require (
+	github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
+	golang.org/x/sys v0.46.0
+)
 
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
@@ -48,7 +51,6 @@ require (
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )

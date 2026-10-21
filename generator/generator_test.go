@@ -19,7 +19,7 @@ import (
 // testGenerator opens a real native generator and registers deterministic cleanup.
 func testGenerator(t testing.TB, seed int64) *Generator {
 	t.Helper()
-	g, err := New(context.Background(), seed, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	g, err := (Config{Workers: 4, CacheChunks: 512}).New(context.Background(), seed, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,5 +195,104 @@ func TestInvalidInputs(t *testing.T) {
 		if _, err := fillChunk(testChunk(), translator, data); err == nil {
 			t.Error("truncated stream accepted")
 		}
+	}
+}
+
+// TestConfigRejectsInvalidLimits checks errors before any native context is allocated.
+func TestConfigRejectsInvalidLimits(t *testing.T) {
+	for _, config := range []Config{{Workers: -1}, {Workers: 257}, {CacheChunks: -1}, {CacheChunks: 4097}} {
+		if g, err := config.New(context.Background(), 99, nil); err == nil {
+			g.Close()
+			t.Errorf("invalid config accepted: %+v", config)
+		}
+	}
+	if DefaultWorkers() < 1 {
+		t.Fatal("default worker count must be positive")
+	}
+}
+
+// TestConcurrentSameChunk exercises duplicate queued requests and bounded-channel backpressure.
+func TestConcurrentSameChunk(t *testing.T) {
+	g, err := (Config{Workers: 4, CacheChunks: 8}).New(context.Background(), 33, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	world.DefaultBlockRegistry.Finalize()
+	hashes := make([][32]byte, 32)
+	var wg sync.WaitGroup
+	for i := range hashes {
+		wg.Go(func() {
+			c := testChunk()
+			if err := g.Generate(context.Background(), world.ChunkPos{3, 3}, c); err != nil {
+				t.Error(err)
+				return
+			}
+			hashes[i] = chunkHash(c)
+		})
+	}
+	wg.Wait()
+	for i, hash := range hashes {
+		if hash != hashes[0] {
+			t.Errorf("duplicate request %d returned different terrain", i)
+		}
+	}
+	if stats := g.Stats(); stats.Chunks != 32 || stats.FallbackBlocks != 0 {
+		t.Errorf("unexpected duplicate request stats: %+v", stats)
+	}
+}
+
+// TestRegenerationAfterLongTraversal checks terrain and seeded biomes after eviction and a world reset.
+func TestRegenerationAfterLongTraversal(t *testing.T) {
+	g, err := (Config{Workers: 8, CacheChunks: 8}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	world.DefaultBlockRegistry.Finalize()
+	origin := testChunk()
+	if err := g.Generate(context.Background(), world.ChunkPos{}, origin); err != nil {
+		t.Fatal(err)
+	}
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for x := range jobs {
+				if err := g.Generate(context.Background(), world.ChunkPos{int32(x), 0}, testChunk()); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	for x := 1; x <= 1100; x++ {
+		jobs <- x
+	}
+	close(jobs)
+	wg.Wait()
+	again := testChunk()
+	if err := g.Generate(context.Background(), world.ChunkPos{}, again); err != nil {
+		t.Fatal(err)
+	}
+	// Decoration blocks can vary even between fresh upstream worlds, so compare biomes
+	// and reject degenerate output rather than asserting identical feature placement.
+	var air int
+	for y := int16(-64); y < 320; y++ {
+		for z := uint8(0); z < 16; z++ {
+			for x := uint8(0); x < 16; x++ {
+				if origin.Biome(x, y, z) != again.Biome(x, y, z) {
+					t.Fatalf("biome changed at (%d,%d,%d) after regeneration", x, y, z)
+				}
+				if again.Block(x, y, z, 0) == again.BlockRegistry().AirRuntimeID() {
+					air++
+				}
+			}
+		}
+	}
+	if air == 0 || air == 16*16*384 {
+		t.Fatalf("regenerated terrain is degenerate: %d air blocks", air)
+	}
+	if stats := g.Stats(); stats.Chunks != 1102 || stats.FallbackBlocks != 0 || stats.UnmappedBiomes != 0 {
+		t.Errorf("unexpected traversal stats: %+v", stats)
 	}
 }

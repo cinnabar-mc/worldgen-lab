@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -39,10 +40,39 @@ type Stats struct {
 	UnmappedBiomes uint64 `json:"unmapped_biomes"`
 }
 
-// New opens a shared per-seed Steel context and loads the embedded mappings.
+// Config bounds native generation and retained output/snapshot caches for each seed.
+// Use the same Workers value for Dragonfly's ChunkLoadWorkers.
+type Config struct {
+	// Workers is the Rayon thread count. Zero uses available cores minus one (minimum one).
+	Workers int
+	// CacheChunks bounds both encoded outputs and saved native snapshots. Zero uses 2048.
+	CacheChunks int
+}
+
+// DefaultWorkers leaves one available core for the server and client, with a minimum of one.
+func DefaultWorkers() int { return max(1, runtime.NumCPU()-1) }
+
+// New opens a generator with the default native worker and cache limits.
 func New(ctx context.Context, seed int64, log *slog.Logger) (*Generator, error) {
+	return (Config{}).New(ctx, seed, log)
+}
+
+// New opens a shared per-seed context, rejecting conflicting settings on another live handle.
+func (config Config) New(ctx context.Context, seed int64, log *slog.Logger) (*Generator, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if config.Workers == 0 {
+		config.Workers = DefaultWorkers()
+	}
+	if config.CacheChunks == 0 {
+		config.CacheChunks = 2048
+	}
+	if config.Workers < 1 || config.Workers > 256 {
+		return nil, errors.New("workers must be 1..256")
+	}
+	if config.CacheChunks < 1 || config.CacheChunks > 4096 {
+		return nil, errors.New("cache chunks must be 1..4096")
 	}
 	if log == nil {
 		log = slog.Default()
@@ -51,7 +81,7 @@ func New(ctx context.Context, seed int64, log *slog.Logger) (*Generator, error) 
 	if err != nil {
 		return nil, fmt.Errorf("load mappings: %w", err)
 	}
-	native, err := openNative(seed)
+	native, err := openNative(seed, config.Workers, config.CacheChunks)
 	if err != nil {
 		return nil, fmt.Errorf("open Steel context: %w", err)
 	}
@@ -202,26 +232,53 @@ func fillChunk(c *chunk.Chunk, t *translator, data []byte) (uint64, error) {
 			palette[i] = t.translate(state, def, flags[0]&1 != 0)
 			palette[i].waterlogged = palette[i].waterlogged || flags[0]&2 != 0
 		}
-		for i := 0; i < 4096; i++ {
-			index := int(r.u16())
-			if r.err != nil {
-				return 0, r.err
+		indices := r.take(8192)
+		if r.err != nil {
+			return 0, r.err
+		}
+		sub := chunk.NewSubChunk(t.air)
+		if len(palette) == 1 {
+			for i := 0; i < len(indices); i += 2 {
+				if binary.LittleEndian.Uint16(indices[i:]) != 0 {
+					return 0, errors.New("invalid Steel block index")
+				}
 			}
-			if index >= len(palette) {
-				return 0, errors.New("invalid Steel block index")
+			state := palette[0]
+			if state.id != t.air {
+				sub.Layer(0).Palette().Replace(func(uint32) uint32 { return state.id })
 			}
-			state := palette[index]
-			x, y, z := uint8(i%16), int16(-64+section*16+i/256), uint8((i/16)%16)
-			c.SetBlock(x, y, z, 0, state.id)
-			water := t.air
 			if state.waterlogged {
-				water = t.water
+				sub.Layer(1).Palette().Replace(func(uint32) uint32 { return t.water })
 			}
-			c.SetBlock(x, y, z, 1, water)
 			if state.fallback {
-				fallback++
+				fallback += 4096
+			}
+		} else {
+			blocks := sub.Layer(0)
+			var water *chunk.PalettedStorage
+			for i := 0; i < 4096; i++ {
+				index := int(binary.LittleEndian.Uint16(indices[i*2:]))
+				if index >= len(palette) {
+					return 0, errors.New("invalid Steel block index")
+				}
+				state := palette[index]
+				x, y, z := uint8(i%16), uint8(i/256), uint8((i/16)%16)
+				if state.id != t.air {
+					blocks.Set(x, y, z, state.id)
+				}
+				if state.waterlogged {
+					if water == nil {
+						water = sub.Layer(1)
+					}
+					water.Set(x, y, z, t.water)
+				}
+				if state.fallback {
+					fallback++
+				}
 			}
 		}
+		c.SetSubChunk(int16(section), sub)
+
 		count = int(r.u16())
 		if count < 1 || count > 64 {
 			return 0, errors.New("invalid Steel biome palette")

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -29,22 +30,30 @@ func run() error {
 	addr := flag.String("addr", "127.0.0.1:19132", "UDP listen address")
 	dir := flag.String("dir", "worlds/steel", "world and player data directory")
 	seed := flag.Int64("seed", 1, "signed 64-bit world seed")
-	workers := flag.Int("workers", 4, "Dragonfly chunk workers")
+	offline := flag.Bool("offline", false, "allow unauthenticated local test clients (loopback only)")
+	workers := flag.Int("workers", generator.DefaultWorkers(), "Dragonfly and native generation workers")
 	flag.Parse()
 	if *workers < 1 {
 		return errors.New("workers must be positive")
+	}
+	if *offline {
+		host, _, err := net.SplitHostPort(*addr)
+		if err != nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("-offline requires a loopback IP in -addr")
+		}
 	}
 	if err := checkSeed(*dir, *seed); err != nil {
 		return err
 	}
 	log := slog.Default()
-	gen, err := generator.New(context.Background(), *seed, log)
+	gen, err := (generator.Config{Workers: *workers}).New(context.Background(), *seed, log)
 	if err != nil {
 		return err
 	}
 	defer gen.Close()
 	config := server.DefaultConfig()
 	config.Network.Address = *addr
+	config.Server.AuthEnabled = !*offline
 	config.Server.Name = "SteelMC terrain"
 	config.World.Folder = filepath.Join(*dir, "world")
 	config.Players.Folder = filepath.Join(*dir, "players")
@@ -86,7 +95,7 @@ func checkSeed(dir string, seed int64) error {
 		return err
 	}
 	path := filepath.Join(dir, "generator.json")
-	want := worldIdentity{&seed, "steel-6749ecf6-geyser-0fd435d3-v1"}
+	want := worldIdentity{&seed, "steel-ff8e48c5-geyser-0fd435d3-batch-v2"}
 	data, err := os.ReadFile(path)
 	if err == nil {
 		var got worldIdentity

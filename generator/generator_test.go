@@ -242,7 +242,7 @@ func TestConcurrentSameChunk(t *testing.T) {
 	}
 }
 
-// TestRegenerationAfterLongTraversal checks terrain and seeded biomes after eviction and a world reset.
+// TestRegenerationAfterLongTraversal checks exact block output after eviction and region regeneration.
 func TestRegenerationAfterLongTraversal(t *testing.T) {
 	g, err := (Config{Workers: 8, CacheChunks: 8}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -254,6 +254,7 @@ func TestRegenerationAfterLongTraversal(t *testing.T) {
 	if err := g.Generate(context.Background(), world.ChunkPos{}, origin); err != nil {
 		t.Fatal(err)
 	}
+	want := chunkHash(origin)
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for range 8 {
@@ -274,25 +275,47 @@ func TestRegenerationAfterLongTraversal(t *testing.T) {
 	if err := g.Generate(context.Background(), world.ChunkPos{}, again); err != nil {
 		t.Fatal(err)
 	}
-	// Decoration blocks can vary even between fresh upstream worlds, so compare biomes
-	// and reject degenerate output rather than asserting identical feature placement.
-	var air int
-	for y := int16(-64); y < 320; y++ {
-		for z := uint8(0); z < 16; z++ {
-			for x := uint8(0); x < 16; x++ {
-				if origin.Biome(x, y, z) != again.Biome(x, y, z) {
-					t.Fatalf("biome changed at (%d,%d,%d) after regeneration", x, y, z)
-				}
-				if again.Block(x, y, z, 0) == again.BlockRegistry().AirRuntimeID() {
-					air++
-				}
-			}
-		}
-	}
-	if air == 0 || air == 16*16*384 {
-		t.Fatalf("regenerated terrain is degenerate: %d air blocks", air)
+	if chunkHash(again) != want {
+		t.Fatal("block layers or biomes changed after uncached regeneration")
 	}
 	if stats := g.Stats(); stats.Chunks != 1102 || stats.FallbackBlocks != 0 || stats.UnmappedBiomes != 0 {
 		t.Errorf("unexpected traversal stats: %+v", stats)
+	}
+}
+
+// TestDeterministicGenerationOrder compares native palettes and mapped chunks across fresh worlds and request orders.
+func TestDeterministicGenerationOrder(t *testing.T) {
+	positions := []world.ChunkPos{{0, 0}, {127, 0}, {128, 0}, {-1, -1}, {0, 1}, {0, 0}}
+	want := make(map[world.ChunkPos][2][32]byte)
+	for run := range 2 {
+		g, err := (Config{Workers: 8, CacheChunks: 1}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { g.Close() })
+		world.DefaultBlockRegistry.Finalize()
+		for i := range positions {
+			index := i
+			if run == 1 {
+				index = len(positions) - 1 - i
+			}
+			pos := positions[index]
+			c := testChunk()
+			if err := g.Generate(context.Background(), pos, c); err != nil {
+				t.Fatal(err)
+			}
+			data, err := g.native.generate(pos[0], pos[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := [2][32]byte{sha256.Sum256(data), chunkHash(c)}
+			if previous, exists := want[pos]; exists && previous != hash {
+				t.Fatalf("%v changed in run %d at request %d", pos, run, i)
+			}
+			want[pos] = hash
+		}
+		if err := g.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

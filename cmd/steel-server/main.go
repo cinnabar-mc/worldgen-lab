@@ -95,7 +95,7 @@ func checkSeed(dir string, seed int64) error {
 		return err
 	}
 	path := filepath.Join(dir, "generator.json")
-	want := worldIdentity{&seed, "steel-ff8e48c5-geyser-0fd435d3-batch-v2"}
+	want := worldIdentity{&seed, "steel-6749ecf6-geyser-0fd435d3-canonical-v3"}
 	data, err := os.ReadFile(path)
 	if err == nil {
 		var got worldIdentity

@@ -1,6 +1,7 @@
 //! SteelMC generation exposed through an owned-buffer C interface.
 mod encoding;
 mod host;
+mod region;
 use host::Context;
 use rustc_hash::FxHashMap as HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};

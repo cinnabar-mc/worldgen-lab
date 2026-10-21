@@ -21,9 +21,9 @@ import (
 // main measures a cold contiguous region with the requested number of Go chunk workers.
 func main() {
 	workers := flag.Int("workers", generator.DefaultWorkers(), "Go chunk workers and native Rayon threads")
-	cache := flag.Int("cache-chunks", 0, "retained output and snapshot limit (zero uses generator default)")
-	count := flag.Int("chunks", 32, "number of unique chunks")
-	pattern := flag.String("pattern", "grid", "chunk layout: grid or line")
+	cache := flag.Int("cache-chunks", 0, "served-output cache limit (zero uses generator default)")
+	count := flag.Int("chunks", 30000, "number of unique chunks")
+	pattern := flag.String("pattern", "line", "chunk layout: grid or line")
 	progress := flag.Int("progress", 0, "report RSS and progress every this many chunks (zero disables)")
 	seed := flag.Int64("seed", 42, "world seed")
 	flag.Parse()
@@ -42,6 +42,8 @@ func main() {
 	var completed atomic.Uint64
 	var output sync.Mutex
 	start := time.Now()
+	var reported uint64
+	var reportedSeconds float64
 	for range *workers {
 		wg.Go(func() {
 			for i := range jobs {
@@ -54,11 +56,19 @@ func main() {
 				done := completed.Add(1)
 				if *progress > 0 && done%uint64(*progress) == 0 {
 					output.Lock()
+					if done <= reported {
+						output.Unlock()
+						continue
+					}
+					elapsed := time.Since(start).Seconds()
+					intervalChunks := done - reported
+					intervalSeconds := elapsed - reportedSeconds
 					_ = json.NewEncoder(os.Stderr).Encode(struct {
-						Chunks       uint64
-						Seconds      float64
-						PeakRSSBytes uint64
-					}{done, time.Since(start).Seconds(), peakRSS()})
+						Chunks, IntervalChunks                            uint64
+						Seconds, IntervalSeconds, IntervalChunksPerSecond float64
+						PeakRSSBytes                                      uint64
+					}{done, intervalChunks, elapsed, intervalSeconds, float64(intervalChunks) / intervalSeconds, peakRSS()})
+					reported, reportedSeconds = done, elapsed
 					output.Unlock()
 				}
 			}
@@ -79,8 +89,9 @@ func main() {
 		Workers, Chunks          int
 		Seconds, ChunksPerSecond float64
 		PeakRSSBytes             uint64
+		Pattern                  string
 		Stats                    generator.Stats
-	}{*workers, *count, seconds, float64(*count) / seconds, peakRSS(), gen.Stats()}
+	}{*workers, *count, seconds, float64(*count) / seconds, peakRSS(), *pattern, gen.Stats()}
 	if err = json.NewEncoder(os.Stdout).Encode(result); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}

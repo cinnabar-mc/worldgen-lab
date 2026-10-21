@@ -1944,7 +1944,6 @@ dependencies = [
 [[package]]
 name = "steel-core"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "arc-swap",
  "base64",
@@ -1996,7 +1995,6 @@ dependencies = [
 [[package]]
 name = "steel-crypto"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "log",
  "rand 0.10.3",
@@ -2008,7 +2006,6 @@ dependencies = [
 [[package]]
 name = "steel-macros"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2018,12 +2015,10 @@ dependencies = [
 [[package]]
 name = "steel-math"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 
 [[package]]
 name = "steel-protocol"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "aes",
  "cfb8",
@@ -2048,7 +2043,6 @@ dependencies = [
 [[package]]
 name = "steel-registry"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "bitflags",
  "flate2",
@@ -2073,7 +2067,6 @@ dependencies = [
 [[package]]
 name = "steel-utils"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "bitflags",
  "chrono",
@@ -2109,7 +2102,6 @@ dependencies = [
 [[package]]
 name = "steel-worldgen"
 version = "0.15.5+mc26.2"
-source = "git+https://github.com/cinnabar-mc/SteelMC?rev=ff8e48c5b751788a6939be57b32932fbbc85ecc3#ff8e48c5b751788a6939be57b32932fbbc85ecc3"
 dependencies = [
  "glam",
  "proc-macro2",

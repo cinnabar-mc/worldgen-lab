@@ -40,12 +40,12 @@ type Stats struct {
 	UnmappedBiomes uint64 `json:"unmapped_biomes"`
 }
 
-// Config bounds native generation and retained output/snapshot caches for each seed.
+// Config bounds native generation and retained encoded outputs for each seed.
 // Use the same Workers value for Dragonfly's ChunkLoadWorkers.
 type Config struct {
 	// Workers is the Rayon thread count. Zero uses available cores minus one (minimum one).
 	Workers int
-	// CacheChunks bounds both encoded outputs and saved native snapshots. Zero uses 2048.
+	// CacheChunks bounds encoded outputs. Zero uses 256; two prefetched regions are retained separately.
 	CacheChunks int
 }
 
@@ -66,7 +66,7 @@ func (config Config) New(ctx context.Context, seed int64, log *slog.Logger) (*Ge
 		config.Workers = DefaultWorkers()
 	}
 	if config.CacheChunks == 0 {
-		config.CacheChunks = 2048
+		config.CacheChunks = 256
 	}
 	if config.Workers < 1 || config.Workers > 256 {
 		return nil, errors.New("workers must be 1..256")

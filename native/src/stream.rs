@@ -5,10 +5,11 @@
 use crate::encoding::encode;
 use crate::host::{ChunkBytes, Job, close_world, open_world};
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
+use steel_core::chunk::chunk_pyramid::GENERATION_PYRAMID;
 use steel_core::chunk::chunk_request::{
     ChunkRequest, ChunkRequestHandle, ChunkRequestState, ChunkTicketKind,
 };
@@ -21,8 +22,15 @@ use tokio::sync::mpsc as queue;
 
 /// Chunk-source phase interval while requests are outstanding; it bounds added latency.
 const TICK: Duration = Duration::from_millis(2);
-/// Full chunks a world serves before a fresh world replaces it, bounding memory near 1.3 GB.
-const WORLD_CHUNKS: usize = 8192;
+/// Positions within the Full dependency radius of a world's served chunks before a fresh
+/// world replaces it. Contiguous travel reaches it after about 8,000 chunks, near 1.3 GB.
+const WORLD_FOOTPRINT: usize = 16_384;
+/// Outstanding requests before the host stops reading new ones, keeping callers blocked.
+const MAX_PENDING: usize = 256;
+/// Radius of the halo a Full chunk keeps loaded.
+const FULL_RADIUS: i32 = GENERATION_PYRAMID
+    .get_step_to(ChunkStatus::Full)
+    .get_accumulated_radius_of(ChunkStatus::Empty) as i32;
 /// Recently served chunks a replacement world prepares, so the view's frontier keeps its halo.
 const WARM_CHUNKS: usize = 1024;
 
@@ -31,6 +39,7 @@ struct Epoch {
     world: Arc<World>,
     pending: FxHashMap<(i32, i32), (ChunkRequestHandle, Vec<mpsc::SyncSender<ChunkBytes>>)>,
     retained: Vec<ChunkRequestHandle>,
+    footprint: FxHashSet<(i32, i32)>,
     recent: VecDeque<(i32, i32)>,
     ticks: u64,
 }
@@ -47,8 +56,18 @@ impl Epoch {
             world: open_world(seed, Arc::clone(generator), damage, pool).await,
             pending: FxHashMap::default(),
             retained: Vec::new(),
+            footprint: FxHashSet::default(),
             recent: VecDeque::new(),
             ticks: 0,
+        }
+    }
+
+    /// Counts the halo positions that `pos` keeps loaded.
+    fn hold(&mut self, (x, z): (i32, i32)) {
+        for dx in -FULL_RADIUS..=FULL_RADIUS {
+            for dz in -FULL_RADIUS..=FULL_RADIUS {
+                self.footprint.insert((x + dx, z + dz));
+            }
         }
     }
 
@@ -86,6 +105,7 @@ impl Epoch {
         for (pos, bytes) in encoded {
             let (handle, waiters) = self.pending.remove(&pos).expect("ready request");
             self.retained.push(handle);
+            self.hold(pos);
             if self.recent.len() == WARM_CHUNKS {
                 self.recent.pop_front();
             }
@@ -111,8 +131,11 @@ pub(crate) async fn serve(
     let mut accepting = true;
     while accepting || !live.pending.is_empty() || !retiring.is_empty() {
         let busy = !live.pending.is_empty() || !retiring.is_empty() || warming.is_some();
+        let outstanding =
+            live.pending.len() + retiring.iter().map(|e| e.pending.len()).sum::<usize>();
+        let reading = accepting && outstanding < MAX_PENDING;
         let mut incoming = Vec::new();
-        if !accepting {
+        if !reading {
             tokio::time::sleep(TICK).await;
         } else if busy {
             tokio::select! {
@@ -122,7 +145,10 @@ pub(crate) async fn serve(
         } else {
             incoming.push(jobs.recv().await.flatten());
         }
-        while accepting && let Ok(job) = jobs.try_recv() {
+        while reading
+            && outstanding + incoming.len() < MAX_PENDING
+            && let Ok(job) = jobs.try_recv()
+        {
             incoming.push(job);
         }
         for job in incoming {
@@ -153,8 +179,11 @@ pub(crate) async fn serve(
         for epoch in retiring.extract_if(.., |epoch| epoch.pending.is_empty()) {
             close_world(&epoch.world).await;
         }
-        if warming.is_none() && accepting && live.retained.len() >= WORLD_CHUNKS {
-            let next = Epoch::open(seed, &generator, &damage, &pool).await;
+        if warming.is_none() && accepting && live.footprint.len() >= WORLD_FOOTPRINT {
+            let mut next = Epoch::open(seed, &generator, &damage, &pool).await;
+            for &pos in &live.recent {
+                next.hold(pos);
+            }
             let handle = next.world.chunk_map.request_chunks(ChunkRequest {
                 status: ChunkStatus::Features,
                 positions: live

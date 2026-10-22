@@ -20,17 +20,19 @@ type playerOptions struct {
 }
 
 // playerResult reports latency from the moment a chunk enters the view disc.
-// Join covers the initial disc; chunks that leave the view before being requested are skipped.
+// JoinMs is null unless every chunk of the initial disc was served; UnservedAtEnd counts
+// chunks of the final disc not served when movement stopped.
 type playerResult struct {
 	Radius, Budget, LoadWorkers int
 	Speed, Seconds              float64
 	Chunks, JoinChunks          int
-	FirstChunkMs, JoinMs        float64
+	FirstChunkMs                float64
+	JoinMs                      *float64
 	P50Ms, P95Ms, MaxMs         float64
 	MovingP50Ms, MovingP95Ms    float64
 	DemandChunksPerSecond       float64
 	SustainedChunksPerSecond    float64
-	PendingAtEnd                int
+	UnservedAtEnd               int
 }
 
 // simulatePlayer walks a view disc through fresh terrain, timing each chunk until generate returns.
@@ -44,7 +46,7 @@ func simulatePlayer(opts playerOptions, generate func(world.ChunkPos)) playerRes
 	var mu sync.Mutex
 	var latencies, moving []time.Duration
 	var first, joinDone time.Time
-	completedInWindow := 0
+	served := map[world.ChunkPos]time.Time{}
 	start := time.Now()
 	end := start.Add(opts.Duration)
 	var wg sync.WaitGroup
@@ -59,15 +61,13 @@ func simulatePlayer(opts playerOptions, generate func(world.ChunkPos)) playerRes
 				}
 				latency := now.Sub(r.needed)
 				latencies = append(latencies, latency)
+				served[r.pos] = now
 				if r.needed.Equal(start) {
 					if now.After(joinDone) {
 						joinDone = now
 					}
 				} else {
 					moving = append(moving, latency)
-				}
-				if now.Before(end) {
-					completedInWindow++
 				}
 				mu.Unlock()
 			}
@@ -108,25 +108,35 @@ func simulatePlayer(opts playerOptions, generate func(world.ChunkPos)) playerRes
 		queue = queue[n:]
 		time.Sleep(time.Until(now.Add(tick)))
 	}
-	mu.Lock()
-	pending := len(issued) - len(latencies)
-	mu.Unlock()
 	close(jobs)
 	wg.Wait()
+	joinWanted, unserved, completedInWindow := 0, 0, 0
+	for p, t := range needed {
+		if t.Equal(start) {
+			joinWanted++
+		}
+		done, ok := served[p]
+		if ok && done.Before(end) {
+			completedInWindow++
+		} else if chunkDistance(p, center) <= int32(opts.Radius) {
+			unserved++
+		}
+	}
 
 	result := playerResult{
 		Radius: opts.Radius, Budget: opts.Budget, LoadWorkers: opts.LoadWorkers,
 		Speed: opts.Speed, Seconds: opts.Duration.Seconds(),
 		Chunks: len(latencies), JoinChunks: len(latencies) - len(moving),
-		PendingAtEnd:             pending,
+		UnservedAtEnd:            unserved,
 		DemandChunksPerSecond:    float64(len(needed)) / opts.Duration.Seconds(),
 		SustainedChunksPerSecond: float64(completedInWindow) / opts.Duration.Seconds(),
 	}
 	if !first.IsZero() {
 		result.FirstChunkMs = ms(first.Sub(start))
 	}
-	if !joinDone.IsZero() {
-		result.JoinMs = ms(joinDone.Sub(start))
+	if result.JoinChunks == joinWanted {
+		join := ms(joinDone.Sub(start))
+		result.JoinMs = &join
 	}
 	result.P50Ms, result.P95Ms, result.MaxMs = percentile(latencies, 0.5), percentile(latencies, 0.95), percentile(latencies, 1)
 	result.MovingP50Ms, result.MovingP95Ms = percentile(moving, 0.5), percentile(moving, 0.95)

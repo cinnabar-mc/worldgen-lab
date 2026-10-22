@@ -1,5 +1,5 @@
-github.com/bedrock-mc/dragonfly v0.0.0-20261019182817-14a1c91693e7 h1:Vm4wMLzqI/ZIC2bSboS6nQOVuZ8Np0UxQ7Q9JP5s9sc=
-github.com/bedrock-mc/dragonfly v0.0.0-20261019182817-14a1c91693e7/go.mod h1:5gl+GtL66Nvgnzs+4y59Jx2UQGsvDBm5ygvwD2DtU7o=
+github.com/bedrock-mc/dragonfly v0.0.0-20261022015723-e67edf22ff17 h1:/mhgefoPedHYoAEaZTt6QznzzQ8TmMBb2c9aaoYUyFE=
+github.com/bedrock-mc/dragonfly v0.0.0-20261022015723-e67edf22ff17/go.mod h1:5gl+GtL66Nvgnzs+4y59Jx2UQGsvDBm5ygvwD2DtU7o=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEosZ6A=

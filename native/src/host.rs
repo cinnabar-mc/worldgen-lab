@@ -1,6 +1,6 @@
 //! A bounded per-seed generation host with event-driven chunk completion.
 use crate::encoding::DESCRIPTORS;
-use crate::region;
+use crate::{region, stream};
 use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
@@ -32,21 +32,22 @@ static RUNTIME: LazyLock<Arc<Runtime>> = LazyLock::new(|| {
 pub struct Context {
     pub(crate) workers: usize,
     pub(crate) cache_chunks: usize,
+    pub(crate) deterministic: bool,
     jobs: queue::Sender<Option<Job>>,
     host: Mutex<Option<JoinHandle<()>>>,
 }
 
 /// One requested chunk and the channel that wakes its synchronous cgo caller.
-type ChunkBytes = Result<Arc<[u8]>, String>;
+pub(crate) type ChunkBytes = Result<Arc<[u8]>, String>;
 
-struct Job {
-    pos: (i32, i32),
-    reply: mpsc::SyncSender<ChunkBytes>,
+pub(crate) struct Job {
+    pub(crate) pos: (i32, i32),
+    pub(crate) reply: mpsc::SyncSender<ChunkBytes>,
 }
 
 impl Context {
-    /// Starts a bounded host and waits for initialization before publishing the handle.
-    pub(crate) fn new(seed: i64, workers: usize, cache_chunks: usize) -> Self {
+    /// Starts a streaming host, or a fixed-region host when `deterministic`, and waits for it.
+    pub(crate) fn new(seed: i64, workers: usize, cache_chunks: usize, deterministic: bool) -> Self {
         let (jobs, receiver) = queue::channel(workers * 2);
         let (ready, initialized) = mpsc::sync_channel(1);
         let host = std::thread::Builder::new()
@@ -64,20 +65,31 @@ impl Context {
                 if ready.send(()).is_err() {
                     return;
                 }
-                RUNTIME.block_on(serve(
-                    seed,
-                    generator,
-                    pool,
-                    damage_history,
-                    receiver,
-                    cache_chunks,
-                ));
+                if deterministic {
+                    RUNTIME.block_on(serve(
+                        seed,
+                        generator,
+                        pool,
+                        damage_history,
+                        receiver,
+                        cache_chunks,
+                    ));
+                } else {
+                    RUNTIME.block_on(stream::serve(
+                        seed,
+                        generator,
+                        pool,
+                        damage_history,
+                        receiver,
+                    ));
+                }
             })
             .expect("host thread");
         initialized.recv().expect("Steel host initialization");
         Self {
             workers,
             cache_chunks,
+            deterministic,
             jobs,
             host: Mutex::new(Some(host)),
         }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -242,9 +243,18 @@ func TestConcurrentSameChunk(t *testing.T) {
 	}
 }
 
-// TestRegenerationAfterLongTraversal checks exact block output after eviction and region regeneration.
+// TestRegenerationAfterLongTraversal checks a served chunk survives traversal: streaming keeps it, regions regenerate it.
 func TestRegenerationAfterLongTraversal(t *testing.T) {
-	g, err := (Config{Workers: 8, CacheChunks: 8}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, deterministic := range []bool{false, true} {
+		t.Run(fmt.Sprintf("deterministic=%v", deterministic), func(t *testing.T) {
+			testRegenerationAfterLongTraversal(t, deterministic)
+		})
+	}
+}
+
+// testRegenerationAfterLongTraversal requests a long line of chunks between two requests for the origin.
+func testRegenerationAfterLongTraversal(t *testing.T, deterministic bool) {
+	g, err := (Config{Workers: 8, CacheChunks: 8, Deterministic: deterministic}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +298,7 @@ func TestDeterministicGenerationOrder(t *testing.T) {
 	positions := []world.ChunkPos{{0, 0}, {127, 0}, {128, 0}, {-1, -1}, {0, 1}, {0, 0}}
 	want := make(map[world.ChunkPos][2][32]byte)
 	for run := range 2 {
-		g, err := (Config{Workers: 8, CacheChunks: 1}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		g, err := (Config{Workers: 8, CacheChunks: 1, Deterministic: true}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err != nil {
 			t.Fatal(err)
 		}

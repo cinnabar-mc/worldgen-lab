@@ -42,7 +42,8 @@ func simulatePlayer(opts playerOptions, generate func(world.ChunkPos)) playerRes
 		pos    world.ChunkPos
 		needed time.Time
 	}
-	jobs := make(chan request, 1<<16)
+	jobs := make(chan request, 4096) // Dragonfly's worker queue; a full queue defers requests
+
 	var mu sync.Mutex
 	var latencies, moving []time.Duration
 	var first, joinDone time.Time
@@ -100,12 +101,15 @@ func simulatePlayer(opts playerOptions, generate func(world.ChunkPos)) playerRes
 				return int(chunkDistance(a, center) - chunkDistance(b, center))
 			})
 		}
-		n := min(opts.Budget, len(queue))
-		for _, p := range queue[:n] {
-			issued[p] = true
-			jobs <- request{p, needed[p]}
+		for n := 0; n < opts.Budget && len(queue) > 0; n++ {
+			select {
+			case jobs <- request{queue[0], needed[queue[0]]}:
+				issued[queue[0]] = true
+				queue = queue[1:]
+			default:
+				n = opts.Budget
+			}
 		}
-		queue = queue[n:]
 		time.Sleep(time.Until(now.Add(tick)))
 	}
 	close(jobs)

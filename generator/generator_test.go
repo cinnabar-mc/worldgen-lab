@@ -293,12 +293,12 @@ func testRegenerationAfterLongTraversal(t *testing.T, deterministic bool) {
 	}
 }
 
-// TestDeterministicGenerationOrder compares native palettes and mapped chunks across fresh worlds and request orders.
+// TestDeterministicGenerationOrder compares native palettes and mapped chunks across fresh worlds, request orders and thread counts.
 func TestDeterministicGenerationOrder(t *testing.T) {
 	positions := []world.ChunkPos{{0, 0}, {127, 0}, {128, 0}, {-1, -1}, {0, 1}, {0, 0}}
 	want := make(map[world.ChunkPos][2][32]byte)
 	for run := range 2 {
-		g, err := (Config{Workers: 8, CacheChunks: 1, Deterministic: true}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		g, err := (Config{Workers: 2 + 6*run, CacheChunks: 1, Deterministic: true}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err != nil {
 			t.Fatal(err)
 		}

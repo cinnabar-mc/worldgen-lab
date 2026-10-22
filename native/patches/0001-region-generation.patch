@@ -1,166 +1,212 @@
+diff --git a/steel-core/src/chunk/chunk_map/mod.rs b/steel-core/src/chunk/chunk_map/mod.rs
+index 5a37ecd7..23a5aee0 100644
+--- a/steel-core/src/chunk/chunk_map/mod.rs
++++ b/steel-core/src/chunk/chunk_map/mod.rs
+@@ -82,4 +82,6 @@ mod light_updates;
+ mod persistence;
+ mod player_tracking;
++mod region_generation;
++pub use region_generation::RegionGenerationError;
+ mod scheduled_ticks;
+ 
 diff --git a/steel-core/src/chunk/chunk_map/region_generation.rs b/steel-core/src/chunk/chunk_map/region_generation.rs
 new file mode 100644
+index 00000000..c85a92f3
 --- /dev/null
 +++ b/steel-core/src/chunk/chunk_map/region_generation.rs
-@@ -0,0 +1,146 @@
-+//! Stage-batched generation for an exclusively owned, disposable region.
+@@ -0,0 +1,195 @@
++//! Stage-ordered generation of a chunk rectangle into an unused chunk map.
++
++use std::sync::{Arc, atomic::Ordering};
++
++use futures::future::join_all;
++use steel_utils::ChunkPos;
++use thiserror::Error;
++
 +use super::ChunkMap;
 +use crate::chunk::{
 +    chunk_generation_task::StaticCache2D,
 +    chunk_holder::ChunkHolder,
 +    chunk_pyramid::{ChunkStep, GENERATION_PYRAMID},
 +    chunk_ticket_manager::ticket_level_for_status,
++    light::LIGHT_CACHE_RADIUS,
 +    status::ChunkStatus,
 +};
-+use rayon::prelude::*;
-+use std::{
-+    collections::BTreeMap,
-+    sync::{Arc, atomic::Ordering},
-+};
-+use steel_utils::ChunkPos;
++
++const FULL_STEP: &ChunkStep = GENERATION_PYRAMID.get_step_to(ChunkStatus::Full);
++
++/// Why [`ChunkMap::generate_region`] could not generate a region.
++#[derive(Debug, Error, PartialEq, Eq)]
++pub enum RegionGenerationError {
++    /// The map already has holders or its generation refill loop is running.
++    #[error("region generation needs an empty chunk map with its refill loop stopped")]
++    MapInUse,
++    /// `min` exceeds `max` on an axis, or the dependency halo leaves the coordinate range.
++    #[error("invalid region bounds {min:?}..={max:?}")]
++    InvalidBounds {
++        /// Requested minimum corner.
++        min: ChunkPos,
++        /// Requested maximum corner.
++        max: ChunkPos,
++    },
++    /// A step was disallowed, cancelled or panicked.
++    #[error("{status:?} generation failed at {pos:?}")]
++    StepFailed {
++        /// Status the failed step targeted.
++        status: ChunkStatus,
++        /// Chunk the step ran on.
++        pos: ChunkPos,
++    },
++}
 +
 +impl ChunkMap {
-+    /// Generates a closed region through Full without one dependency walk per requested chunk.
++    /// Generates every chunk in `min..=max` to Full and returns their holders in Z-then-X order.
 +    ///
-+    /// The world must be empty, exclusively owned, and have its refill loop stopped.
-+    /// All halo sizes come from the upstream generation pyramid. Stages that only write
-+    /// their center run in parallel; Features and Light use fixed disjoint phases.
++    /// Each status is finished across the region and its dependency halo before the next
++    /// starts, so shared dependencies run once rather than once per requested chunk. Steps that
++    /// touch neighboring chunks run in phases whose areas are disjoint, which makes the result
++    /// independent of thread scheduling.
 +    ///
-+    /// # Errors
-+    /// Returns an error for invalid bounds, an active/nonempty world, or missing dependencies.
-+    pub fn generate_region_in_order(
++    /// The map must be empty with its refill loop stopped, and nothing else may drive it until
++    /// this returns. The holders bypass tickets, so they are never saved or unloaded.
++    pub async fn generate_region(
 +        self: &Arc<Self>,
 +        min: ChunkPos,
 +        max: ChunkPos,
-+        pool: &rayon::ThreadPool,
-+    ) -> Result<Vec<Arc<ChunkHolder>>, String> {
-+        let _phase = self.source_phase_guard.lock();
-+        if !self.generation_refill_stopped.load(Ordering::Acquire) || !self.chunks.is_empty() {
-+            return Err("region generation requires an empty, stopped world".to_owned());
++    ) -> Result<Vec<Arc<ChunkHolder>>, RegionGenerationError> {
++        let halo = FULL_STEP.get_accumulated_radius_of(ChunkStatus::Empty) as i32;
++        let in_range = |low: i32, high: i32| {
++            low <= high && low.checked_sub(halo).is_some() && high.checked_add(halo).is_some()
++        };
++        if !in_range(min.0.x, max.0.x) || !in_range(min.0.y, max.0.y) {
++            return Err(RegionGenerationError::InvalidBounds { min, max });
 +        }
-+        if min.0.x > max.0.x || min.0.y > max.0.y {
-+            return Err("invalid region bounds".to_owned());
-+        }
-+        let full = GENERATION_PYRAMID.get_step_to(ChunkStatus::Full);
-+        let radius = full.get_accumulated_radius_of(ChunkStatus::Empty) as i32;
-+        for (low, high) in [(min.0.x, max.0.x), (min.0.y, max.0.y)] {
-+            if low.checked_sub(radius).is_none() || high.checked_add(radius).is_none() {
-+                return Err("region halo exceeds coordinate range".to_owned());
-+            }
-+        }
-+        for pos in region_positions(min, max, radius) {
-+            let dx = (i64::from(min.0.x) - i64::from(pos.0.x))
-+                .max(i64::from(pos.0.x) - i64::from(max.0.x))
-+                .max(0);
-+            let dz = (i64::from(min.0.y) - i64::from(pos.0.y))
-+                .max(i64::from(pos.0.y) - i64::from(max.0.y))
-+                .max(0);
-+            let distance = dx.max(dz) as usize;
-+            let needed = if distance == 0 {
-+                Some(ChunkStatus::Full)
-+            } else {
-+                full.accumulated_dependencies.get(distance)
-+            };
-+            let needed = needed.ok_or("region halo has no generation requirement")?;
-+            let holder = Arc::new(ChunkHolder::new_with_full_publications(
-+                pos,
-+                ticket_level_for_status(needed),
-+                None,
-+                self.world_gen_context.min_y(),
-+                self.world_gen_context.height(),
-+                Arc::downgrade(&self.full_publications),
-+            ));
-+            if self.chunks.insert_sync(pos, holder).is_err() {
-+                return Err("region holder already exists".to_owned());
-+            }
-+        }
++        self.insert_region_holders(min, max, halo)?;
++
 +        let mut status = Some(ChunkStatus::Empty);
 +        while let Some(current) = status {
 +            let step = GENERATION_PYRAMID.get_step_to(current);
-+            let radius = full.get_accumulated_radius_of(current) as i32;
++            let radius = FULL_STEP.get_accumulated_radius_of(current) as i32;
 +            let positions = region_positions(min, max, radius);
-+            if matches!(current, ChunkStatus::Features | ChunkStatus::Light) {
-+                let period = step.direct_dependencies.get_radius() as i32 * 2 + 1;
-+                let mut rounds = BTreeMap::<(i32, i32), Vec<ChunkPos>>::new();
-+                for pos in positions {
-+                    rounds
-+                        .entry((pos.0.x.rem_euclid(period), pos.0.y.rem_euclid(period)))
-+                        .or_default()
-+                        .push(pos);
++            let period = region_step_reach(step) * 2 + 1;
++            for phase_x in 0..period {
++                for phase_z in 0..period {
++                    let phase = positions
++                        .iter()
++                        .filter(|pos| {
++                            pos.0.x.rem_euclid(period) == phase_x
++                                && pos.0.y.rem_euclid(period) == phase_z
++                        })
++                        .copied()
++                        .collect::<Vec<_>>();
++                    self.generate_region_phase(step, &phase).await?;
 +                }
-+                for positions in rounds.values() {
-+                    self.run_region_stage(step, positions, pool);
-+                }
-+            } else {
-+                self.run_region_stage(step, &positions, pool);
 +            }
 +            status = current.next();
 +        }
-+        region_positions(min, max, 0)
++
++        Ok(region_positions(min, max, 0)
 +            .into_iter()
-+            .map(|pos| {
-+                self.chunks
-+                    .read_sync(&pos, |_, holder| Arc::clone(holder))
-+                    .ok_or_else(|| format!("generated holder disappeared at {pos:?}"))
-+            })
-+            .collect()
++            .map(|pos| self.region_holder(pos))
++            .collect())
 +    }
 +
-+    /// Runs one stage after its complete input halo has reached the parent stages.
-+    fn run_region_stage(
++    /// Installs a holder for every region and halo chunk, allowing only the status it needs.
++    fn insert_region_holders(
++        &self,
++        min: ChunkPos,
++        max: ChunkPos,
++        halo: i32,
++    ) -> Result<(), RegionGenerationError> {
++        let _source_phase_guard = self.source_phase_guard.lock();
++        if !self.generation_refill_stopped.load(Ordering::Acquire) || !self.chunks.is_empty() {
++            return Err(RegionGenerationError::MapInUse);
++        }
++
++        for pos in region_positions(min, max, halo) {
++            let dx = (min.0.x.saturating_sub(pos.0.x))
++                .max(pos.0.x.saturating_sub(max.0.x))
++                .max(0);
++            let dz = (min.0.y.saturating_sub(pos.0.y))
++                .max(pos.0.y.saturating_sub(max.0.y))
++                .max(0);
++            let distance = dx.max(dz) as usize;
++            let needed_status = if distance == 0 {
++                ChunkStatus::Full
++            } else {
++                let Some(status) = FULL_STEP.accumulated_dependencies.get(distance) else {
++                    panic!("Full dependencies must cover their own radius");
++                };
++                status
++            };
++            let holder = Arc::new(ChunkHolder::new(
++                pos,
++                ticket_level_for_status(needed_status),
++                None,
++                self.world_gen_context.min_y(),
++                self.world_gen_context.height(),
++            ));
++            if self.chunks.insert_sync(pos, holder).is_err() {
++                return Err(RegionGenerationError::MapInUse);
++            }
++        }
++        Ok(())
++    }
++
++    /// Applies `step` to `positions`, whose areas must not overlap, through the normal step path.
++    async fn generate_region_phase(
 +        self: &Arc<Self>,
 +        step: &'static ChunkStep,
 +        positions: &[ChunkPos],
-+        pool: &rayon::ThreadPool,
-+    ) {
-+        pool.install(|| {
-+            positions.par_iter().for_each(|pos| {
-+                let owner = Arc::clone(self);
-+                let cache = Arc::new(StaticCache2D::create(
-+                    pos.0.x,
-+                    pos.0.y,
-+                    step.direct_dependencies.get_radius() as i32,
-+                    move |x, z| {
-+                        let Some(holder) = owner
-+                            .chunks
-+                            .read_sync(&ChunkPos::new(x, z), |_, holder| Arc::clone(holder))
-+                        else {
-+                            panic!("region dependency disappeared at ({x},{z})");
-+                        };
-+                        holder
-+                    },
-+                ));
-+                let holder = Arc::clone(cache.get(pos.0.x, pos.0.y));
-+                (step.task)(
-+                    Arc::clone(&self.world_gen_context),
-+                    step,
-+                    &cache,
-+                    Arc::clone(&holder),
-+                );
-+                holder.finish_generation_status(step.target_status);
-+            })
-+        });
++    ) -> Result<(), RegionGenerationError> {
++        let cache_radius =
++            (step.direct_dependencies.get_radius() as i32).max(region_step_reach(step));
++        let mut pending = Vec::with_capacity(positions.len());
++        for &pos in positions {
++            let chunk_map = Arc::clone(self);
++            let cache = Arc::new(StaticCache2D::create(
++                pos.0.x,
++                pos.0.y,
++                cache_radius,
++                move |x, z| chunk_map.region_holder(ChunkPos::new(x, z)),
++            ));
++            let holder = Arc::clone(cache.get(pos.0.x, pos.0.y));
++            let failed = RegionGenerationError::StepFailed {
++                status: step.target_status,
++                pos,
++            };
++            let Some(ready) =
++                holder.apply_step(step, self, &cache, Arc::clone(&self.generation_pool))
++            else {
++                return Err(failed);
++            };
++            pending.push(async move { ready.await.ok_or(failed) });
++        }
++        join_all(pending).await.into_iter().collect()
++    }
++
++    fn region_holder(&self, pos: ChunkPos) -> Arc<ChunkHolder> {
++        let Some(holder) = self.chunks.read_sync(&pos, |_, holder| Arc::clone(holder)) else {
++            panic!("region generation installs a holder for every dependency, missing {pos:?}");
++        };
++        holder
 +    }
 +}
 +
-+/// Enumerates a rectangular core and its halo in stable X/Z order.
++/// Returns how many chunks around its center a step may read while it modifies them.
++///
++/// Light worksets light a whole cache window, wider than the step's declared dependencies.
++const fn region_step_reach(step: &ChunkStep) -> i32 {
++    match step.target_status {
++        ChunkStatus::Light => LIGHT_CACHE_RADIUS,
++        _ if step.block_state_write_radius > 0 => step.block_state_write_radius,
++        _ => 0,
++    }
++}
++
++/// Lists the rectangle expanded by `radius` in Z-then-X order.
 +fn region_positions(min: ChunkPos, max: ChunkPos, radius: i32) -> Vec<ChunkPos> {
-+    (min.0.x - radius..=max.0.x + radius)
-+        .flat_map(|x| (min.0.y - radius..=max.0.y + radius).map(move |z| ChunkPos::new(x, z)))
++    (min.0.y - radius..=max.0.y + radius)
++        .flat_map(|z| (min.0.x - radius..=max.0.x + radius).map(move |x| ChunkPos::new(x, z)))
 +        .collect()
 +}
-diff --git a/steel-core/src/chunk/chunk_map/mod.rs b/steel-core/src/chunk/chunk_map/mod.rs
---- a/steel-core/src/chunk/chunk_map/mod.rs
-+++ b/steel-core/src/chunk/chunk_map/mod.rs
-@@ -83,2 +83,3 @@
- mod player_tracking;
-+mod region_generation;
- mod scheduled_ticks;
-diff --git a/steel-core/src/chunk/chunk_holder.rs b/steel-core/src/chunk/chunk_holder.rs
---- a/steel-core/src/chunk/chunk_holder.rs
-+++ b/steel-core/src/chunk/chunk_holder.rs
-@@ -1251,3 +1251,3 @@
-     /// Finishes a generated status on the async scheduler after the Rayon task returns.
--    fn finish_generation_status(self: &Arc<Self>, status: ChunkStatus) {
-+    pub(crate) fn finish_generation_status(self: &Arc<Self>, status: ChunkStatus) {
-         if let Some(stored_chunk) = self.data.get()

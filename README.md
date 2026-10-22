@@ -1,6 +1,6 @@
 # worldgen-lab
 
-Java Edition 26.2 overworld terrain from [SteelMC](https://github.com/Steel-Foundation/SteelMC), served to Bedrock 1.26.50 clients through [Dragonfly](https://github.com/df-mc/dragonfly).
+Java Edition 26.3 overworld terrain from [SteelMC](https://github.com/Steel-Foundation/SteelMC), served to Bedrock 1.26.50 clients through [Dragonfly](https://github.com/df-mc/dragonfly).
 
 ## Build
 

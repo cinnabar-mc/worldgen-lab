@@ -1,0 +1,24 @@
+[package]
+name = "steel-bridge"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+steel-core = { path = ".steel/steel-core" }
+steel-worldgen = { path = ".steel/steel-worldgen" }
+steel-registry = { path = ".steel/steel-registry" }
+steel-utils = { path = ".steel/steel-utils" }
+rayon = "1.12.0"
+rustc-hash = "2"
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+toml = "1.1.3"
+
+[profile.release]
+debug = 0
+lto = true
+codegen-units = 1

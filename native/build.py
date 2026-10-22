@@ -10,7 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / ".steel"
-REVISION = "6749ecf6d24a420d61a997779219edec0b21da9e"
+REVISION = "da3fb73fc05b3114e24babe68b506c98a9185752"
 REMOTE = "https://github.com/Steel-Foundation/SteelMC.git"
 
 

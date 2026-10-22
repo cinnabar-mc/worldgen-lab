@@ -42,12 +42,15 @@ async fn fill(
     pool: &Arc<rayon::ThreadPool>,
 ) -> Result<Outputs, String> {
     let start = key.0 * WIDTH;
-    pool.install(|| {
-        let holders = world.chunk_map.generate_region_in_order(
+    let holders = world
+        .chunk_map
+        .generate_region(
             ChunkPos::new(start, key.1),
             ChunkPos::new(start + WIDTH - 1, key.1),
-            pool,
-        )?;
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    pool.install(|| {
         holders
             .par_iter()
             .map(|holder| {

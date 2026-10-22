@@ -10,10 +10,10 @@ from pathlib import Path
 import urllib.request
 import zipfile
 
-COMMIT = "0fd435d3d4617dd458c6ee0e6889a5245483bf5f"
-RELEASE = "2.0.1-build.1"
-ARCHIVE_SHA256 = "c05dd27ab743446e764ca2530c826eb32424378ee3d34e279a057633ac2dfd5a"
-URL = f"https://github.com/GeyserMC/mappings-generator/releases/download/{RELEASE}/mappings-v2.0.1-full.zip"
+COMMIT = "81700ab543c1f4e9f9041f58dac4154ecb0d0c8b"
+RELEASE = "2.1.0-build.1"
+ARCHIVE_SHA256 = "f837627ef75863461fbf51bd43c66a4292b6d7d719c7103284694da263f36600"
+URL = f"https://github.com/GeyserMC/mappings-generator/releases/download/{RELEASE}/mappings-v2.1.0-full.zip"
 
 
 def fetch(url):

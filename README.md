@@ -38,7 +38,7 @@ conf.Generator = func(dim world.Dimension) world.Generator {
 }
 ```
 
-Chunks stream from one long-lived SteelMC world, so each request reuses the generation work done for its neighbours, as on a Java server. As in Java, neighbouring features are placed in completion order, so a chunk can differ slightly between runs; a world never changes a chunk it has served. After 8,192 chunks, new requests move to a fresh world to bound memory. Set `Deterministic` to generate fixed regions in disposable worlds instead: output then never depends on request order, but the first chunk of each region takes seconds.
+Chunks stream from one long-lived SteelMC world, so each request reuses the generation work done for its neighbours, as on a Java server. As in Java, neighbouring features are placed in completion order, so a chunk can differ slightly between runs; a world never changes a chunk it has served. After about 8,000 chunks of travel, or fewer scattered chunks, a fresh world prepared with the latest chunks takes over to bound memory. Set `Deterministic` to generate fixed regions in disposable worlds instead: output then never depends on request order, but the first chunk of each region takes seconds.
 
 Java block states map to Bedrock through pinned GeyserMC data; unmapped states fall back to stone or air and are counted in `gen.Stats()`.
 

@@ -243,17 +243,18 @@ func TestConcurrentSameChunk(t *testing.T) {
 	}
 }
 
-// TestRegenerationAfterLongTraversal checks a served chunk survives traversal: streaming keeps it, regions regenerate it.
+// TestRegenerationAfterLongTraversal checks a served chunk survives traversal: a streaming world keeps it, regions regenerate it.
 func TestRegenerationAfterLongTraversal(t *testing.T) {
-	for _, deterministic := range []bool{false, true} {
+	// The streaming line stays within one world's footprint; the regions line outlives their cache.
+	for deterministic, count := range map[bool]int{false: 300, true: 1100} {
 		t.Run(fmt.Sprintf("deterministic=%v", deterministic), func(t *testing.T) {
-			testRegenerationAfterLongTraversal(t, deterministic)
+			testRegenerationAfterLongTraversal(t, deterministic, count)
 		})
 	}
 }
 
-// testRegenerationAfterLongTraversal requests a long line of chunks between two requests for the origin.
-func testRegenerationAfterLongTraversal(t *testing.T, deterministic bool) {
+// testRegenerationAfterLongTraversal requests a line of count chunks between two requests for the origin.
+func testRegenerationAfterLongTraversal(t *testing.T, deterministic bool, count int) {
 	g, err := (Config{Workers: 8, CacheChunks: 8, Deterministic: deterministic}).New(context.Background(), 42, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +277,7 @@ func testRegenerationAfterLongTraversal(t *testing.T, deterministic bool) {
 			}
 		})
 	}
-	for x := 1; x <= 1100; x++ {
+	for x := 1; x <= count; x++ {
 		jobs <- x
 	}
 	close(jobs)
@@ -288,7 +289,7 @@ func testRegenerationAfterLongTraversal(t *testing.T, deterministic bool) {
 	if chunkHash(again) != want {
 		t.Fatal("block layers or biomes changed after uncached regeneration")
 	}
-	if stats := g.Stats(); stats.Chunks != 1102 || stats.FallbackBlocks != 0 || stats.UnmappedBiomes != 0 {
+	if stats := g.Stats(); stats.Chunks != uint64(count+2) || stats.FallbackBlocks != 0 || stats.UnmappedBiomes != 0 {
 		t.Errorf("unexpected traversal stats: %+v", stats)
 	}
 }

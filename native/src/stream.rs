@@ -32,7 +32,7 @@ const FULL_RADIUS: i32 = GENERATION_PYRAMID
     .get_step_to(ChunkStatus::Full)
     .get_accumulated_radius_of(ChunkStatus::Empty) as i32;
 /// Recently served chunks a replacement world prepares, so the view's frontier keeps its halo.
-const WARM_CHUNKS: usize = 1024;
+const WARM_CHUNKS: usize = 256;
 
 /// One world and the tickets that keep its requested chunks and their halos loaded.
 struct Epoch {

@@ -20,7 +20,7 @@ Rebuild Go with `-a` after changing Rust; Go's cache does not track the static l
 ./bin/steel-server -seed 42 -offline        # loopback only, no Xbox sign-in
 ```
 
-Use a new `-dir` when changing the seed or generator revision. `-workers` sets both Dragonfly and native generation threads.
+Use a new `-dir` when changing the seed or generator revision. `-workers` sets both Dragonfly and native generation threads. `-radius` caps the client view distance (default 12).
 
 ## Use as a Dragonfly generator
 
@@ -38,13 +38,18 @@ conf.Generator = func(dim world.Dimension) world.Generator {
 }
 ```
 
-Output is deterministic per seed regardless of request order. Java block states map to Bedrock through pinned GeyserMC data; unmapped states fall back to stone or air and are counted in `gen.Stats()`.
+Chunks stream from one long-lived SteelMC world, so each request reuses the generation work done for its neighbours, as on a Java server. As in Java, neighbouring features are placed in completion order, so a chunk can differ slightly between runs; a world never changes a chunk it has served. Once the dependency halos of a world's served chunks cover 16,384 chunk positions, a fresh world prepared with the latest chunks takes over to bound memory; a radius-12 view flown in a straight line reaches this after roughly 8,000 chunks. Set `Deterministic` to generate fixed regions in disposable worlds instead: output then never depends on request order, but the first chunk of each region takes seconds.
+
+Java block states map to Bedrock through pinned GeyserMC data; unmapped states fall back to stone or air and are counted in `gen.Stats()`.
 
 ## Benchmark
 
 ```sh
 ./bin/steel-bench -workers 8 -pattern grid -chunks 4096
+./bin/steel-bench -pattern player -radius 12 -speed 33   # elytra; 5.6 is sprinting
 ```
+
+The `player` pattern simulates a player's view disc moving through fresh terrain, with closest-first requests at 32 per tick like `steel-server`. It reports time to the first chunk, time to fill the initial view, p50 and p95 latency from when a chunk enters view, and sustained chunks per second.
 
 ## Limits
 

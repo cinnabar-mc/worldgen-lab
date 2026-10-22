@@ -1,4 +1,5 @@
 // steel-bench measures uncached generation through the complete cgo and Dragonfly path.
+// The player pattern also reports per-chunk latency for a moving view disc.
 package main
 
 import (
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,12 +25,21 @@ func main() {
 	workers := flag.Int("workers", generator.DefaultWorkers(), "Go chunk workers and native Rayon threads")
 	cache := flag.Int("cache-chunks", 0, "served-output cache limit (zero uses generator default)")
 	count := flag.Int("chunks", 30000, "number of unique chunks")
-	pattern := flag.String("pattern", "line", "chunk layout: grid or line")
+	pattern := flag.String("pattern", "line", "chunk layout: grid, line or player")
+	radius := flag.Int("radius", 8, "player view radius in chunks")
+	speed := flag.Float64("speed", 5.6, "player speed in blocks/s (sprint 5.6, elytra 33)")
+	duration := flag.Float64("seconds", 30, "player movement duration")
+	budget := flag.Int("budget", 32, "player chunk requests per 50 ms tick")
+	loadWorkers := flag.Int("load-workers", 0, "player blocking chunk workers (zero uses -workers)")
 	progress := flag.Int("progress", 0, "report RSS and progress every this many chunks (zero disables)")
 	seed := flag.Int64("seed", 42, "world seed")
 	flag.Parse()
-	if *workers < 1 || *count < 1 || (*pattern != "grid" && *pattern != "line") || *progress < 0 {
-		slog.Error("invalid workers, chunks, pattern or progress arguments")
+	if *loadWorkers == 0 {
+		*loadWorkers = *workers
+	}
+	if *workers < 1 || *count < 1 || !slices.Contains([]string{"grid", "line", "player"}, *pattern) || *progress < 0 ||
+		*radius < 1 || *speed < 0 || *duration <= 0 || *budget < 1 || *loadWorkers < 1 {
+		slog.Error("invalid arguments")
 		os.Exit(1)
 	}
 	gen, err := (generator.Config{Workers: *workers, CacheChunks: *cache}).New(context.Background(), *seed, slog.Default())
@@ -37,6 +48,22 @@ func main() {
 		os.Exit(1)
 	}
 	world.DefaultBlockRegistry.Finalize()
+	if *pattern == "player" {
+		opts := playerOptions{*radius, *speed, time.Duration(*duration * float64(time.Second)), *budget, *loadWorkers}
+		result := simulatePlayer(opts, func(pos world.ChunkPos) {
+			gen.GenerateChunk(pos, chunk.New(world.DefaultBlockRegistry, cube.Range{-64, 319}))
+		})
+		if err = gen.Close(); err != nil {
+			slog.Error("close generator", "error", err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(struct {
+			playerResult
+			Workers      int
+			PeakRSSBytes uint64
+		}{result, *workers, peakRSS()})
+		return
+	}
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	var completed atomic.Uint64

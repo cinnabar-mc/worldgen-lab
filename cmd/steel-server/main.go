@@ -32,9 +32,10 @@ func run() error {
 	seed := flag.Int64("seed", 1, "signed 64-bit world seed")
 	offline := flag.Bool("offline", false, "allow unauthenticated local test clients (loopback only)")
 	workers := flag.Int("workers", generator.DefaultWorkers(), "Dragonfly and native generation workers")
+	radius := flag.Int("radius", 12, "maximum player chunk radius")
 	flag.Parse()
-	if *workers < 1 {
-		return errors.New("workers must be positive")
+	if *workers < 1 || *radius < 1 {
+		return errors.New("workers and radius must be positive")
 	}
 	if *offline {
 		host, _, err := net.SplitHostPort(*addr)
@@ -58,12 +59,14 @@ func run() error {
 	config.World.Folder = filepath.Join(*dir, "world")
 	config.Players.Folder = filepath.Join(*dir, "players")
 	config.Resources.Folder = filepath.Join(*dir, "resources")
-	config.Players.MaximumChunkRadius = 8
+	config.Players.MaximumChunkRadius = *radius
 	conf, err := config.Config(log)
 	if err != nil {
 		return err
 	}
 	conf.ChunkLoadWorkers = *workers
+	// Dragonfly's defaults of 4 per tick and 8 open transactions cap a player at 80 chunks/s.
+	conf.ChunkLoadsPerTick, conf.MaxChunkTransactions = 32, 64
 	conf.Generator = func(dim world.Dimension) world.Generator {
 		if dim == world.Overworld {
 			return gen
@@ -95,7 +98,7 @@ func checkSeed(dir string, seed int64) error {
 		return err
 	}
 	path := filepath.Join(dir, "generator.json")
-	want := worldIdentity{&seed, "steel-6749ecf6-geyser-0fd435d3-canonical-v3"}
+	want := worldIdentity{&seed, "steel-da3fb73f-geyser-81700ab5-stream-v1"}
 	data, err := os.ReadFile(path)
 	if err == nil {
 		var got worldIdentity

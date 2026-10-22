@@ -40,13 +40,15 @@ type Stats struct {
 	UnmappedBiomes uint64 `json:"unmapped_biomes"`
 }
 
-// Config bounds native generation and retained encoded outputs for each seed.
-// Use the same Workers value for Dragonfly's ChunkLoadWorkers.
+// Config bounds native generation for each seed.
 type Config struct {
 	// Workers is the Rayon thread count. Zero uses available cores minus one (minimum one).
 	Workers int
-	// CacheChunks bounds encoded outputs. Zero uses 256; two prefetched regions are retained separately.
+	// CacheChunks bounds deterministic-mode encoded outputs. Zero uses 256; two prefetched regions are retained separately.
 	CacheChunks int
+	// Deterministic generates fixed regions in disposable worlds, so output never depends on request order.
+	// It is much slower to first chunk than the default streaming world; see the README.
+	Deterministic bool
 }
 
 // DefaultWorkers leaves one available core for the server and client, with a minimum of one.
@@ -81,7 +83,7 @@ func (config Config) New(ctx context.Context, seed int64, log *slog.Logger) (*Ge
 	if err != nil {
 		return nil, fmt.Errorf("load mappings: %w", err)
 	}
-	native, err := openNative(seed, config.Workers, config.CacheChunks)
+	native, err := openNative(seed, config.Workers, config.CacheChunks, config.Deterministic)
 	if err != nil {
 		return nil, fmt.Errorf("open Steel context: %w", err)
 	}

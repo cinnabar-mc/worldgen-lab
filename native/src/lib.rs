@@ -2,6 +2,7 @@
 mod encoding;
 mod host;
 mod region;
+mod stream;
 use host::Context;
 use rustc_hash::FxHashMap as HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -47,12 +48,14 @@ pub unsafe extern "C" fn steel_context_new(
     seed: i64,
     workers: u32,
     cache_chunks: u32,
+    deterministic: u8,
     error: *mut Buffer,
 ) -> *mut Arc<Context> {
     let mut handle = std::ptr::null_mut();
     let result = guarded(|| {
         let workers = workers as usize;
         let cache_chunks = cache_chunks as usize;
+        let deterministic = deterministic != 0;
         assert!(
             (1..=256).contains(&workers),
             "native workers must be 1..256"
@@ -64,13 +67,16 @@ pub unsafe extern "C" fn steel_context_new(
         let mut contexts = CONTEXTS.lock().expect("context registry lock");
         contexts.retain(|_, value| value.strong_count() != 0);
         let context = if let Some(context) = contexts.get(&seed).and_then(Weak::upgrade) {
-            if context.workers != workers || context.cache_chunks != cache_chunks {
+            if context.workers != workers
+                || context.cache_chunks != cache_chunks
+                || context.deterministic != deterministic
+            {
                 drop(contexts);
                 panic!("seed already open with different generation settings");
             }
             context
         } else {
-            let context = Arc::new(Context::new(seed, workers, cache_chunks));
+            let context = Arc::new(Context::new(seed, workers, cache_chunks, deterministic));
             contexts.insert(seed, Arc::downgrade(&context));
             context
         };

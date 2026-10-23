@@ -13,8 +13,10 @@ import (
 	"path/filepath"
 
 	"github.com/cinnabar-mc/worldgen-lab/generator"
+	"github.com/cinnabar-mc/worldgen-lab/internal/testflight"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/google/uuid"
 )
 
 // main reports startup failures with a nonzero exit status.
@@ -77,10 +79,18 @@ func run() error {
 	settings.Spawn = gen.DefaultSpawn(world.Overworld)
 	settings.DefaultGameMode = world.GameModeCreative
 	conf.WorldProvider.SaveSettings(settings)
-	srv := conf.New()
+	testflight.Register()
+	var srv *server.Server
+	for i, listen := range conf.Listeners {
+		conf.Listeners[i] = testflight.WrapListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
+			return srv.Player(id)
+		})
+	}
+	srv = conf.New()
 	srv.CloseOnProgramEnd()
 	srv.Listen()
-	for range srv.Accept() {
+	for p := range srv.Accept() {
+		p.Handle(&testflight.Handler{})
 	}
 	log.Info("generation totals", "stats", gen.Stats())
 	return nil

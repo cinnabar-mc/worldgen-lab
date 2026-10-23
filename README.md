@@ -25,15 +25,15 @@ Use a new `-dir` when changing the seed or generator revision. `-workers` sets b
 Testing commands (available to every player):
 
 - `/fly` toggles permission to fly in survival or adventure; double-tap jump to start flying.
-- `/speed 4` multiplies walking and normal flight speed by 4; `/speed reset` restores defaults.
-- `/flyspeed 100` uses direct motion at 100 blocks/s while flying. Movement keys steer horizontally,
-  jump rises, sneak descends, and releasing the controls stops motion. `/flyspeed off` restores
-  normal flight. `/speed` also turns direct flight off. Direct flight settings reset on reconnect.
+- `/speed 4` scales walking and direct flight to 4 times their default speeds. While flying,
+  movement keys steer horizontally, jump rises, sneak descends, and releasing the controls stops
+  motion. The command reports the flight rate in blocks/s. `/speed reset`, `/speed 1`, or `/speed`
+  restores normal walking and ability flight. Speed settings reset on reconnect.
 - `/time set day` changes the time; named choices are day, noon, sunset, night, midnight and sunrise.
   `/time set 6000` sets a tick count, and `/time add 1000` advances time by that many ticks.
   These commands preserve the current daylight cycle setting.
 
-Use `/flyspeed` to move through fresh terrain at a repeatable speed when testing chunk generation.
+Use `/speed` to move through fresh terrain at a repeatable speed when testing chunk generation.
 
 ## Use as a Dragonfly generator
 

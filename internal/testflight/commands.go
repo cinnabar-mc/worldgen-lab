@@ -2,7 +2,6 @@ package testflight
 
 import (
 	"errors"
-	"math"
 
 	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/player"
@@ -11,8 +10,6 @@ import (
 )
 
 const (
-	minSpeedMultiplier = 0.1
-	maxSpeedMultiplier = 100
 	// Dragonfly's sprint scales the movement attribute by this on start and divides it back on stop.
 	sprintSpeedFactor = 1.3
 	// Steady vanilla speeds per unit of FlySpeed and movement attribute, from the client's flight
@@ -23,38 +20,48 @@ const (
 
 // Register makes the testing commands available to every player.
 func Register() {
-	cmd.Register(cmd.New("speed", "Scales flight and walking speed from the vanilla defaults", nil, speedReset{}, speedSet{}))
-	cmd.Register(cmd.New("flyspeed", "Sets direct flight speed in blocks/s, or turns it off", nil, flySpeedOff{}, flySpeedSet{}))
+	cmd.Register(cmd.New("speed", "Scales walking and direct flight speed; reset restores normal movement", nil, speedReset{}, speedSet{}))
 	cmd.Register(cmd.New("fly", "Toggles being allowed to fly", nil, flyToggle{}))
 	cmd.Register(cmd.New("time", "Sets or adds to the world's time", nil, timeSetPreset{}, timeSetTicks{}, timeAdd{}))
 }
 
-// speedMultiplier clamps m to the accepted range.
+// speedMultiplier accepts positive multipliers whose flight velocity fits a motion packet.
 func speedMultiplier(m float64) (float64, error) {
-	if math.IsNaN(m) {
-		return 0, errors.New("speed multiplier must be a number")
+	if _, err := flySpeedValue(protocol.AbilityBaseFlySpeed * flyBlocksPerSecondPerUnit * m); err != nil {
+		return 0, errors.New("speed multiplier must be positive, finite, and fit a motion packet")
 	}
-	return min(max(m, minSpeedMultiplier), maxSpeedMultiplier), nil
+	return m, nil
 }
 
-// applySpeed sends the abilities fly speeds and the movement attribute scaled by m.
-func applySpeed(p *player.Player, m float64) {
-	if h, ok := p.Handler().(*Handler); ok {
-		h.flight.set(p, 0)
+// applySpeed scales walking and direct flight, or restores normal abilities at x1.
+func applySpeed(p *player.Player, m float64) error {
+	h, ok := p.Handler().(*Handler)
+	if !ok {
+		return errors.New("speed controls are unavailable for this player")
 	}
-	p.SetFlightSpeed(protocol.AbilityBaseFlySpeed * m)
-	p.SetVerticalFlightSpeed(protocol.AbilityBaseVerticalFlySpeed * m)
+	if m == 1 {
+		h.flight.set(p, 0)
+		p.SetFlightSpeed(protocol.AbilityBaseFlySpeed)
+		p.SetVerticalFlightSpeed(protocol.AbilityBaseVerticalFlySpeed)
+	} else {
+		h.flight.set(p, protocol.AbilityBaseFlySpeed*flyBlocksPerSecondPerUnit*m)
+	}
 	walk := protocol.AbilityBaseWalkSpeed * m
 	if p.Sprinting() {
 		walk *= sprintSpeedFactor
 	}
 	p.SetSpeed(walk)
+	return nil
 }
 
-// reportSpeed prints the expected movement rates for an ability multiplier.
+// reportSpeed prints the walking and direct flight rates, or confirms a reset.
 func reportSpeed(o *cmd.Output, m float64) {
+	if m == 1 {
+		o.Print("Speed reset to normal walking and flight")
+		return
+	}
 	fly := protocol.AbilityBaseFlySpeed * m * flyBlocksPerSecondPerUnit
-	o.Printf("Speed x%g: flying ~%.0f blocks/s (sprinting ~%.0f), walking ~%.1f blocks/s", m, fly, 2*fly, protocol.AbilityBaseWalkSpeed*m*walkBlocksPerSecondPerUnit)
+	o.Printf("Speed x%g: direct flight %g blocks/s, walking ~%.1f blocks/s", m, fly, protocol.AbilityBaseWalkSpeed*m*walkBlocksPerSecondPerUnit)
 }
 
 type speedSet struct {
@@ -73,7 +80,10 @@ func (s speedSet) Run(src cmd.Source, o *cmd.Output, _ *world.Tx) {
 		o.Error(err)
 		return
 	}
-	applySpeed(p, m)
+	if err := applySpeed(p, m); err != nil {
+		o.Error(err)
+		return
+	}
 	reportSpeed(o, m)
 }
 

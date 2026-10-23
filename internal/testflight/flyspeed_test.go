@@ -12,45 +12,6 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-func TestFlySpeedCommandParsesAndRestoresAbilities(t *testing.T) {
-	withPlayer(t, world.GameModeCreative, func(tx *world.Tx, p *player.Player) {
-		runCommand(t, tx, p, "speed", "3")
-		previous := [2]float64{p.FlightSpeed(), p.VerticalFlightSpeed()}
-		walk := p.Speed()
-		h := p.Handler().(*Handler)
-		for _, args := range []string{"500", "5000", "12.5"} {
-			runCommand(t, tx, p, "flyspeed", args)
-			if h.flight.speed == 0 || p.FlightSpeed() != 0 || p.VerticalFlightSpeed() != 0 || p.Speed() != walk {
-				t.Fatalf("/flyspeed %s: state %+v, abilities %v/%v, walking %v", args, h.flight, p.FlightSpeed(), p.VerticalFlightSpeed(), p.Speed())
-			}
-		}
-		if h.flight.speed != 12.5 {
-			t.Fatalf("decimal speed was not parsed: %v", h.flight.speed)
-		}
-		for _, args := range []string{"", "abc", "0", "-1", "NaN", "+Inf", "1e100", "500 extra", "off extra"} {
-			runCommand(t, tx, p, "flyspeed", args)
-			if h.flight.speed != 12.5 {
-				t.Fatalf("invalid /flyspeed %q changed speed to %v", args, h.flight.speed)
-			}
-		}
-		p.StartFlying()
-		p.SetVelocity(mgl64.Vec3{10, 1, 0})
-		runCommand(t, tx, p, "flyspeed", "off")
-		if h.flight.speed != 0 || p.FlightSpeed() != previous[0] || p.VerticalFlightSpeed() != previous[1] || p.Velocity() != (mgl64.Vec3{}) {
-			t.Fatalf("off did not restore flight: state %+v, abilities %v/%v, velocity %v", h.flight, p.FlightSpeed(), p.VerticalFlightSpeed(), p.Velocity())
-		}
-		runCommand(t, tx, p, "flyspeed", "off")
-		if p.FlightSpeed() != previous[0] || p.VerticalFlightSpeed() != previous[1] {
-			t.Fatal("repeated off changed restored abilities")
-		}
-		runCommand(t, tx, p, "flyspeed", "500")
-		runCommand(t, tx, p, "speed", "2")
-		if h.flight.speed != 0 || p.FlightSpeed() != protocol.AbilityBaseFlySpeed*2 || p.VerticalFlightSpeed() != protocol.AbilityBaseVerticalFlySpeed*2 {
-			t.Fatal("/speed did not switch back to ability flight")
-		}
-	})
-}
-
 func TestFlySpeedValueDoesNotClampHighSpeeds(t *testing.T) {
 	for _, speed := range []float64{0.1, 500, 5000, 1e12} {
 		if got, err := flySpeedValue(speed); err != nil || got != speed {
@@ -116,7 +77,7 @@ func TestFlySpeedRejectsNonFiniteInput(t *testing.T) {
 
 func TestFlySpeedOnlyMovesFlyingPlayersAndAcceptsLargePositions(t *testing.T) {
 	withPlayer(t, world.GameModeSurvival, func(tx *world.Tx, p *player.Player) {
-		runCommand(t, tx, p, "flyspeed", "500")
+		runCommand(t, tx, p, "speed", "500")
 		h := p.Handler().(*Handler)
 		input := flightInput(mgl32.Vec2{0, 1}, 0)
 		h.flight.tick(p, input)

@@ -39,35 +39,51 @@ func withPlayer(t *testing.T, mode world.GameMode, f func(tx *world.Tx, p *playe
 	}
 }
 
-func TestSpeedMultiplierClamps(t *testing.T) {
-	for _, c := range []struct{ in, want float64 }{
-		{12, 12}, {0, minSpeedMultiplier}, {-5, minSpeedMultiplier}, {1e9, maxSpeedMultiplier}, {math.Inf(1), maxSpeedMultiplier},
-	} {
-		if got, err := speedMultiplier(c.in); err != nil || got != c.want {
-			t.Fatalf("speedMultiplier(%v) = %v, %v; want %v", c.in, got, err, c.want)
+func TestSpeedMultiplierAcceptsRepresentablePositiveValues(t *testing.T) {
+	for _, m := range []float64{0.01, 1, 12.5, 500, 5000, 1e12} {
+		if got, err := speedMultiplier(m); err != nil || got != m {
+			t.Fatalf("speedMultiplier(%v) = %v, %v", m, got, err)
 		}
 	}
-	if _, err := speedMultiplier(math.NaN()); err == nil {
-		t.Fatal("NaN must be rejected")
+	for _, m := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1), math.MaxFloat64, math.SmallestNonzeroFloat64} {
+		if _, err := speedMultiplier(m); err == nil {
+			t.Fatalf("accepted invalid multiplier %v", m)
+		}
 	}
 }
 
-func TestSpeedCommandScalesAndResets(t *testing.T) {
+func TestSpeedCommandScalesWalkingAndDirectFlight(t *testing.T) {
 	withPlayer(t, world.GameModeCreative, func(tx *world.Tx, p *player.Player) {
-		check := func(args string, m float64) {
-			t.Helper()
+		h := p.Handler().(*Handler)
+		for _, args := range []string{"4", "500", "5000", "12.5"} {
 			runCommand(t, tx, p, "speed", args)
-			if p.FlightSpeed() != protocol.AbilityBaseFlySpeed*m ||
-				p.VerticalFlightSpeed() != protocol.AbilityBaseVerticalFlySpeed*m ||
-				p.Speed() != protocol.AbilityBaseWalkSpeed*m {
-				t.Fatalf("/speed %s: fly %v, vertical %v, walk %v; want x%v", args, p.FlightSpeed(), p.VerticalFlightSpeed(), p.Speed(), m)
+			if h.flight.speed == 0 || p.FlightSpeed() != 0 || p.VerticalFlightSpeed() != 0 {
+				t.Fatalf("/speed %s did not enable direct flight: %+v", args, h.flight)
 			}
 		}
-		check("12", 12)
-		check("reset", 1)
-		check("1000", maxSpeedMultiplier)
-		check("", 1)
-		check("abc", 1) // a parse error leaves the speed alone
+		m := 12.5
+		if h.flight.speed != protocol.AbilityBaseFlySpeed*flyBlocksPerSecondPerUnit*m || p.Speed() != protocol.AbilityBaseWalkSpeed*m {
+			t.Fatalf("walking and flight did not use the same multiplier: walk %v, flight %v", p.Speed(), h.flight.speed)
+		}
+		for _, args := range []string{"abc", "0", "-1", "NaN", "+Inf", "1e100", "500 extra", "reset extra"} {
+			runCommand(t, tx, p, "speed", args)
+			if h.flight.speed != protocol.AbilityBaseFlySpeed*flyBlocksPerSecondPerUnit*m || p.Speed() != protocol.AbilityBaseWalkSpeed*m {
+				t.Fatalf("invalid /speed %q changed movement", args)
+			}
+		}
+		p.StartFlying()
+		for _, args := range []string{"reset", "", "1"} {
+			runCommand(t, tx, p, "speed", "4")
+			p.SetVelocity(mgl64.Vec3{10, 1, 0})
+			runCommand(t, tx, p, "speed", args)
+			if h.flight.speed != 0 || p.FlightSpeed() != protocol.AbilityBaseFlySpeed ||
+				p.VerticalFlightSpeed() != protocol.AbilityBaseVerticalFlySpeed || p.Speed() != protocol.AbilityBaseWalkSpeed || p.Velocity() != (mgl64.Vec3{}) {
+				t.Fatalf("/speed %s did not restore normal movement", args)
+			}
+		}
+		if _, ok := cmd.ByAlias("flyspeed"); ok {
+			t.Fatal("the removed /flyspeed command is still available")
+		}
 	})
 }
 

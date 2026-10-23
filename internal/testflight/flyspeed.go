@@ -4,9 +4,7 @@ import (
 	"errors"
 	"math"
 
-	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/player"
-	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -21,48 +19,6 @@ func flySpeedValue(speed float64) (float64, error) {
 		return 0, errors.New("flight speed must be positive, finite, and fit a motion packet")
 	}
 	return speed, nil
-}
-
-type flySpeedSet struct {
-	Speed float64 `cmd:"blocks/s"`
-}
-
-// Run enables direct motion flight at the requested speed.
-func (s flySpeedSet) Run(src cmd.Source, o *cmd.Output, _ *world.Tx) {
-	p, ok := src.(*player.Player)
-	if !ok {
-		o.Error("only players can change their flight speed")
-		return
-	}
-	speed, err := flySpeedValue(s.Speed)
-	if err != nil {
-		o.Error(err)
-		return
-	}
-	h, ok := p.Handler().(*Handler)
-	if !ok {
-		o.Error("direct flight is unavailable for this player")
-		return
-	}
-	h.flight.set(p, speed)
-	o.Printf("Direct flight: %g blocks/s. Use /fly if needed, then double-tap jump to fly; /flyspeed off restores ability flight", speed)
-}
-
-type flySpeedOff struct {
-	Off cmd.SubCommand `cmd:"off"`
-}
-
-// Run stops direct motion flight and restores the previous flight abilities.
-func (flySpeedOff) Run(src cmd.Source, o *cmd.Output, _ *world.Tx) {
-	p, ok := src.(*player.Player)
-	if !ok {
-		o.Error("only players can change their flight speed")
-		return
-	}
-	if h, ok := p.Handler().(*Handler); ok {
-		h.flight.set(p, 0)
-	}
-	o.Print("Direct flight off")
 }
 
 // flySpeedState lives on the player's world owner and is discarded on disconnect.

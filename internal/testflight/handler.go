@@ -1,4 +1,4 @@
-// Package testflight provides temporary movement controls for terrain testing.
+// Package testflight provides movement and time controls for terrain testing.
 package testflight
 
 import "github.com/df-mc/dragonfly/server/player"

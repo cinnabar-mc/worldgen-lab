@@ -22,13 +22,16 @@ Rebuild Go with `-a` after changing Rust; Go's cache does not track the static l
 
 Use a new `-dir` when changing the seed or generator revision. `-workers` sets both Dragonfly and native generation threads. `-radius` caps the client view distance (default 12).
 
-Flight testing commands (available to every player):
+Testing commands (available to every player):
 
 - `/fly` toggles permission to fly in survival or adventure; double-tap jump to start flying.
 - `/speed 4` multiplies walking and normal flight speed by 4; `/speed reset` restores defaults.
 - `/flyspeed 100` uses direct motion at 100 blocks/s while flying. Movement keys steer horizontally,
   jump rises, sneak descends, and releasing the controls stops motion. `/flyspeed off` restores
   normal flight. `/speed` also turns direct flight off. Direct flight settings reset on reconnect.
+- `/time set day` changes the time; named choices are day, noon, sunset, night, midnight and sunrise.
+  `/time set 6000` sets a tick count, and `/time add 1000` advances time by that many ticks.
+  These commands preserve the current daylight cycle setting.
 
 Use `/flyspeed` to move through fresh terrain at a repeatable speed when testing chunk generation.
 

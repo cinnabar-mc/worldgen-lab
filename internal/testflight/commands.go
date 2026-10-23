@@ -21,11 +21,12 @@ const (
 	walkBlocksPerSecondPerUnit = 43.17
 )
 
-// Register makes the flight testing commands available to every player.
+// Register makes the testing commands available to every player.
 func Register() {
 	cmd.Register(cmd.New("speed", "Scales flight and walking speed from the vanilla defaults", nil, speedReset{}, speedSet{}))
 	cmd.Register(cmd.New("flyspeed", "Sets direct flight speed in blocks/s, or turns it off", nil, flySpeedOff{}, flySpeedSet{}))
 	cmd.Register(cmd.New("fly", "Toggles being allowed to fly", nil, flyToggle{}))
+	cmd.Register(cmd.New("time", "Sets or adds to the world's time", nil, timeSetPreset{}, timeSetTicks{}, timeAdd{}))
 }
 
 // speedMultiplier clamps m to the accepted range.

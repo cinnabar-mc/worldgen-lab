@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"io"
 	"log/slog"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -148,6 +150,69 @@ func TestFillChunkTruncatedBiomeIndices(t *testing.T) {
 	}
 }
 
+// conversionBiomePalette returns up to 64 mapped biome entries, including aliases if needed.
+func conversionBiomePalette(tr *translator) []string {
+	names := make([]string, 0, len(tr.table.Biomes))
+	for name := range tr.table.Biomes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var palette []string
+	seen := make(map[uint32]bool)
+	for _, name := range names {
+		id := tr.table.Biomes[name]
+		if !seen[id] {
+			palette = append(palette, name)
+			seen[id] = true
+		}
+		if len(palette) == 64 {
+			break
+		}
+	}
+	// Different Java palette entries may map to the same Bedrock biome ID.
+	for len(palette) > 0 && len(palette) < 64 {
+		palette = append(palette, palette[0])
+	}
+	return palette
+}
+
+// TestFillChunkRandomBiomes compares a prepared varied column with scalar assignment at every block.
+func TestFillChunkRandomBiomes(t *testing.T) {
+	tr := conversionTranslator(t)
+	palette := conversionBiomePalette(tr)
+	if len(palette) != 64 {
+		t.Fatalf("need 64 mapped entries, got %d", len(palette))
+	}
+	rng := rand.New(rand.NewPCG(123, 456))
+	var sections [24]biomeSection
+	want := testChunk()
+	counts := []int{1, 2, 3, 4, 5, 8, 9, 16, 17, 32, 33, 64}
+	for section := range sections {
+		count := counts[section%len(counts)]
+		sections[section].palette = palette[:count]
+		for cell, index := range rng.Perm(64) {
+			sections[section].indices[cell] = uint16(index % count)
+		}
+		for y := 0; y < 16; y++ {
+			for z := 0; z < 16; z++ {
+				for x := 0; x < 16; x++ {
+					cell := y/4*16 + z/4*4 + x/4
+					name := sections[section].palette[sections[section].indices[cell]]
+					want.SetBiome(uint8(x), int16(-64+section*16+y), uint8(z), tr.table.Biomes[name])
+				}
+			}
+		}
+	}
+	data, _ := biomeColumnData(sections)
+	c := testChunk()
+	if _, err := fillChunk(c, tr, data); err != nil {
+		t.Fatal(err)
+	}
+	if chunkHash(c) != chunkHash(want) {
+		t.Fatal("randomized conversion differs from scalar reference")
+	}
+}
+
 // BenchmarkFillChunk measures complete Go conversion of prepared columns, excluding native generation.
 func BenchmarkFillChunk(b *testing.B) {
 	tr := conversionTranslator(b)
@@ -157,6 +222,22 @@ func BenchmarkFillChunk(b *testing.B) {
 			benchmarkFillChunk(b, tr, data)
 		})
 	}
+	b.Run("varied", func(b *testing.B) {
+		palette := conversionBiomePalette(tr)
+		if len(palette) != 64 {
+			b.Fatal("need 64 mapped biome entries")
+		}
+		rng := rand.New(rand.NewPCG(123, 456))
+		var sections [24]biomeSection
+		for section := range sections {
+			sections[section].palette = palette
+			for cell, index := range rng.Perm(64) {
+				sections[section].indices[cell] = uint16(index)
+			}
+		}
+		data, _ := biomeColumnData(sections)
+		benchmarkFillChunk(b, tr, data)
+	})
 }
 
 // BenchmarkFillGeneratedChunk converts a prepared native column; native generation is outside the timer.

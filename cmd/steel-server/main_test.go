@@ -34,3 +34,34 @@ func TestSeedIdentity(t *testing.T) {
 		t.Error("world without metadata accepted")
 	}
 }
+
+// TestSavedWorldValidation prevents a mistyped save path from becoming a new empty world.
+func TestSavedWorldValidation(t *testing.T) {
+	dir := t.TempDir()
+	if err := checkSavedWorld(dir); err == nil {
+		t.Fatal("accepted a directory without a world")
+	}
+	level := filepath.Join(dir, "level.dat")
+	if err := os.WriteFile(level, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSavedWorld(dir); err == nil {
+		t.Fatal("accepted a world without its database")
+	}
+	db := filepath.Join(dir, "db")
+	if err := os.WriteFile(db, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSavedWorld(dir); err == nil {
+		t.Fatal("accepted a database path that is a file")
+	}
+	if err := os.Remove(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(db, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSavedWorld(dir); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -114,18 +114,22 @@ impl Epoch {
                 Some((*pos, Arc::clone(&ready.holders[0])))
             })
             .collect();
-        let encoded: Vec<_> = pool.install(|| {
-            ready
-                .par_iter()
-                .map(|(pos, holder)| {
-                    let bytes = holder
-                        .try_chunk(ChunkStatus::Full)
-                        .map(|chunk| Arc::<[u8]>::from(encode(chunk)))
-                        .ok_or_else(|| "Full chunk disappeared before encoding".to_owned());
-                    (*pos, bytes)
-                })
-                .collect()
-        });
+        let encoded: Vec<_> = if ready.is_empty() {
+            Vec::new()
+        } else {
+            pool.install(|| {
+                ready
+                    .par_iter()
+                    .map(|(pos, holder)| {
+                        let bytes = holder
+                            .try_chunk(ChunkStatus::Full)
+                            .map(|chunk| Arc::<[u8]>::from(encode(chunk)))
+                            .ok_or_else(|| "Full chunk disappeared before encoding".to_owned());
+                        (*pos, bytes)
+                    })
+                    .collect()
+            })
+        };
         for (pos, bytes) in encoded {
             let Pending {
                 handle, waiters, ..
@@ -150,6 +154,9 @@ impl Epoch {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Serves each request as soon as its chunk is Full, while the world keeps its neighbours.
 pub(crate) async fn serve(

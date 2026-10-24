@@ -289,6 +289,7 @@ func fillChunk(c *chunk.Chunk, t *translator, data []byte) (uint64, error) {
 		for i := range biomes {
 			biomes[i] = t.biome(r.text())
 		}
+		var cells [4][4][4]uint32
 		for i := 0; i < 64; i++ {
 			index := int(r.u16())
 			if r.err != nil {
@@ -297,15 +298,9 @@ func fillChunk(c *chunk.Chunk, t *translator, data []byte) (uint64, error) {
 			if index >= len(biomes) {
 				return 0, errors.New("invalid Steel biome index")
 			}
-			// Dragonfly stores biomes at block resolution, so expand every quart cell.
-			for dy := 0; dy < 4; dy++ {
-				for dz := 0; dz < 4; dz++ {
-					for dx := 0; dx < 4; dx++ {
-						c.SetBiome(uint8((i%4)*4+dx), int16(-64+section*16+(i/16)*4+dy), uint8(((i/4)%4)*4+dz), biomes[index])
-					}
-				}
-			}
+			cells[i%4][i/16][(i/4)%4] = biomes[index]
 		}
+		c.SetBiomeSection(int16(-64+section*16), cells)
 	}
 	if r.err != nil {
 		return 0, r.err

@@ -31,6 +31,7 @@ func main() {
 func run() error {
 	addr := flag.String("addr", "127.0.0.1:19132", "UDP listen address")
 	dir := flag.String("dir", "worlds/steel", "world and player data directory")
+	savedWorld := flag.String("saved-world", "", "existing Bedrock world directory; disables terrain generation")
 	seed := flag.Int64("seed", 1, "signed 64-bit world seed")
 	offline := flag.Bool("offline", false, "allow unauthenticated local test clients (loopback only)")
 	workers := flag.Int("workers", generator.DefaultWorkers(), "Dragonfly and native generation workers")
@@ -45,20 +46,22 @@ func run() error {
 			return errors.New("-offline requires a loopback IP in -addr")
 		}
 	}
-	if err := checkSeed(*dir, *seed); err != nil {
+	if *savedWorld == "" {
+		if err := checkSeed(*dir, *seed); err != nil {
+			return err
+		}
+	} else if err := checkSavedWorld(*savedWorld); err != nil {
 		return err
 	}
 	log := slog.Default()
-	gen, err := (generator.Config{Workers: *workers}).New(context.Background(), *seed, log)
-	if err != nil {
-		return err
-	}
-	defer gen.Close()
 	config := server.DefaultConfig()
 	config.Network.Address = *addr
 	config.Server.AuthEnabled = !*offline
 	config.Server.Name = "SteelMC terrain"
 	config.World.Folder = filepath.Join(*dir, "world")
+	if *savedWorld != "" {
+		config.World.Folder = *savedWorld
+	}
 	config.Players.Folder = filepath.Join(*dir, "players")
 	config.Resources.Folder = filepath.Join(*dir, "resources")
 	config.Players.MaximumChunkRadius = *radius
@@ -69,14 +72,25 @@ func run() error {
 	conf.ChunkLoadWorkers = *workers
 	// Dragonfly's defaults of 4 per tick and 8 open transactions cap a player at 80 chunks/s.
 	conf.ChunkLoadsPerTick, conf.MaxChunkTransactions = 32, 64
-	conf.Generator = func(dim world.Dimension) world.Generator {
-		if dim == world.Overworld {
-			return gen
-		}
-		return world.NopGenerator{}
-	}
+	conf.Generator = func(world.Dimension) world.Generator { return world.NopGenerator{} }
 	settings := conf.WorldProvider.Settings()
-	settings.Spawn = gen.DefaultSpawn(world.Overworld)
+	if *savedWorld == "" {
+		gen, err := (generator.Config{Workers: *workers}).New(context.Background(), *seed, log)
+		if err != nil {
+			_ = conf.WorldProvider.Close()
+			_ = conf.PlayerProvider.Close()
+			return err
+		}
+		defer gen.Close()
+		defer func() { log.Info("generation totals", "stats", gen.Stats()) }()
+		conf.Generator = func(dim world.Dimension) world.Generator {
+			if dim == world.Overworld {
+				return gen
+			}
+			return world.NopGenerator{}
+		}
+		settings.Spawn = gen.DefaultSpawn(world.Overworld)
+	}
 	settings.DefaultGameMode = world.GameModeCreative
 	conf.WorldProvider.SaveSettings(settings)
 	testflight.Register()
@@ -92,7 +106,24 @@ func run() error {
 	for p := range srv.Accept() {
 		p.Handle(&testflight.Handler{})
 	}
-	log.Info("generation totals", "stats", gen.Stats())
+	return nil
+}
+
+// checkSavedWorld rejects missing world files before the provider can create an empty world.
+func checkSavedWorld(dir string) error {
+	for _, entry := range []struct {
+		name string
+		dir  bool
+	}{{"level.dat", false}, {"db", true}} {
+		path := filepath.Join(dir, entry.name)
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("saved world: %w", err)
+		}
+		if info.IsDir() != entry.dir || (!entry.dir && !info.Mode().IsRegular()) {
+			return fmt.Errorf("saved world: invalid %s", path)
+		}
+	}
 	return nil
 }
 

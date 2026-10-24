@@ -22,6 +22,17 @@ Rebuild Go with `-a` after changing Rust; Go's cache does not track the static l
 
 Use a new `-dir` when changing the seed or generator revision. `-workers` sets both Dragonfly and native generation threads. `-radius` caps the client view distance (default 12).
 
+To explore an existing Bedrock save, extract a copy of its world folder and run:
+
+```sh
+./bin/steel-server -saved-world /path/to/world-copy -dir worlds/saved-play -radius 255
+```
+
+The world folder must contain `level.dat` and `db/`. This mode preserves its spawn,
+uses creative mode, and disables terrain generation; unexplored chunks are empty.
+The server can save changes to the copy. `-dir` keeps player and resource data
+separate, and `-seed` is unused in this mode.
+
 Testing commands (available to every player):
 
 - `/fly` toggles permission to fly in survival or adventure; double-tap jump to start flying.

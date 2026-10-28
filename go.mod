@@ -55,7 +55,7 @@ require (
 )
 
 replace (
-	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20261028011445-c57293740e76
+	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20261028134339-01c91ae0e5ed
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.14.2-0.20260625072737-109968c5e6ff
 	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261027180448-6173a5d687fc
 )

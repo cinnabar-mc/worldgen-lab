@@ -13,10 +13,10 @@ require (
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 // indirect
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261027214049-fda175e5b247 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58 // indirect
+	github.com/df-mc/go-nethernet v1.0.26 // indirect
 	github.com/df-mc/go-playfab/v2 v2.0.3 // indirect
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20261012072832-90ce120e31cd // indirect
 	github.com/df-mc/goleveldb v1.1.9 // indirect
@@ -55,9 +55,9 @@ require (
 )
 
 replace (
-	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20261026172444-bad38bc0fb68
+	github.com/df-mc/dragonfly => github.com/hashimthearab/dragonfly v0.0.0-20261028011445-c57293740e76
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.14.2-0.20260625072737-109968c5e6ff
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261014162105-8ac650567a22
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261027180448-6173a5d687fc
 )
 
 replace github.com/df-mc/go-xsapi/v2 => github.com/hashimthearab/go-xsapi/v2 v2.0.0-20260629063438-188b35931d3e

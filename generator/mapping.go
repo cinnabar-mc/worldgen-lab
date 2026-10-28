@@ -110,6 +110,14 @@ func (t *translator) lookup(java string) (uint32, bool) {
 		}
 		props[key] = value
 	}
+	// Mappings older than a block's newest properties omit them; use the defaults as the game does.
+	if defaults, ok := t.registry.DefaultProperties(state.Name); ok {
+		for key, value := range defaults {
+			if _, set := props[key]; !set {
+				props[key] = value
+			}
+		}
+	}
 	return t.registry.StateToRuntimeID(state.Name, props)
 }
 

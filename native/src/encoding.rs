@@ -1,7 +1,6 @@
 //! Versioned section palettes for the C interface, independent of registry numbering.
 use rustc_hash::FxHashMap as HashMap;
 use std::sync::LazyLock;
-use steel_core::chunk::paletted_container::PalettedContainer;
 use steel_registry::blocks::block_state_ext::BlockStateExt;
 use steel_registry::{REGISTRY, RegistryExt};
 use steel_utils::BlockStateId;
@@ -35,7 +34,7 @@ fn string(out: &mut Vec<u8>, value: &str) {
 fn state_key(id: BlockStateId) -> String {
     let block = id.get_block();
     let mut key = block.key.to_string();
-    let mut properties = REGISTRY.blocks.get_properties(id);
+    let mut properties: Vec<_> = REGISTRY.blocks.properties(id).collect();
     properties.sort_unstable();
     if !properties.is_empty() {
         key.push('[');
@@ -57,26 +56,34 @@ pub(crate) fn encode(chunk: &steel_core::chunk::Chunk) -> Vec<u8> {
     out.extend_from_slice(b"SWG1");
     out.extend_from_slice(&(-64_i16).to_le_bytes());
     out.extend_from_slice(&24_u16.to_le_bytes());
-    for holder in &chunk.sections().sections {
+    let sections = chunk.sections();
+    // Y-then-Z-then-X order across the whole chunk, so each section is one contiguous slice.
+    let mut blocks = vec![BlockStateId::default(); sections.sections.len() * 4096];
+    let mut column = Vec::new();
+    for z in 0..16 {
+        for x in 0..16 {
+            sections.read_column_into(x, z, &mut column);
+            for (y, id) in column.iter().enumerate() {
+                blocks[(y * 16 + z) * 16 + x] = *id;
+            }
+        }
+    }
+    for (holder, states) in sections.sections.iter().zip(blocks.chunks_exact(4096)) {
         let section = holder.read();
-        let (palette, indices) = if let PalettedContainer::Homogeneous(id) = &section.states {
-            (vec![*id], vec![0_u16; 4096])
+        let (palette, indices) = if states.iter().all(|id| *id == states[0]) {
+            (vec![states[0]], vec![0_u16; 4096])
         } else {
             let mut palette = Vec::new();
             let mut lookup = HashMap::default();
-            let mut indices = Vec::with_capacity(4096);
-            for y in 0..16 {
-                for z in 0..16 {
-                    for x in 0..16 {
-                        let id = section.states.get(x, y, z);
-                        let n = *lookup.entry(id.0).or_insert_with(|| {
-                            palette.push(id);
-                            (palette.len() - 1) as u16
-                        });
-                        indices.push(n);
-                    }
-                }
-            }
+            let indices = states
+                .iter()
+                .map(|id| {
+                    *lookup.entry(id.0).or_insert_with(|| {
+                        palette.push(*id);
+                        (palette.len() - 1) as u16
+                    })
+                })
+                .collect::<Vec<_>>();
             (palette, indices)
         };
         out.extend_from_slice(&(palette.len() as u16).to_le_bytes());

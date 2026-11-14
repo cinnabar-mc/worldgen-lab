@@ -8,7 +8,7 @@ license = "AGPL-3.0-only"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-steel-core = { path = ".steel/steel-core" }
+steel-core = { path = ".steel/steel-core", features = ["region-generation"] }
 steel-worldgen = { path = ".steel/steel-worldgen" }
 steel-registry = { path = ".steel/steel-registry" }
 steel-utils = { path = ".steel/steel-utils" }

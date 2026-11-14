@@ -7,7 +7,7 @@ Java Edition 26.3 overworld terrain from [SteelMC](https://github.com/Steel-Foun
 Requires Go 1.26, rustup, Python 3, Git and a C compiler.
 
 ```sh
-python3 native/build.py   # fetches pinned SteelMC, applies native/patches, builds the Rust bridge
+python3 native/build.py   # fetches pinned SteelMC and builds the Rust bridge
 go build -o bin/ ./cmd/...
 ```
 
